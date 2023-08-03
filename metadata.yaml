@@ -1,0 +1,23 @@
+databases:
+  a:
+    plugins:
+      datasette-litestream:
+        replicas:
+          - path: a-backup
+  b:
+    plugins:
+      datasette-litestream:
+        replicas:
+          - path: b-backup
+  c:
+    plugins:
+      datasette-litestream:
+        replicas:
+          - path: c-backup
+          - url: s3://pg-gloria-anthrax-boom-sputter.sfo3.digitaloceanspaces.com/debug
+
+plugins:
+  datasette-litestream:
+    all-replicate:
+      - s3://pg-gloria-anthrax-boom-sputter.sfo3.digitaloceanspaces.com/debug/$DB
+      - file://$DB-backup
