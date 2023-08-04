@@ -1,0 +1,23 @@
+[project]
+name = "litestream"
+version = "0.0.1-alpha.1"
+description = ""
+readme = "README.md"
+authors = [{name = "Alex Garcia"}]
+license = {text = "Apache-2.0"}
+classifiers = [
+    "License :: OSI Approved :: Apache Software License"
+]
+dependencies = []
+requires-python = ">3.7"
+
+[project.urls]
+Homepage = "https://github.com/datasette-io/datasette-litestream"
+Changelog = "https://github.com/datasette-io/datasette-litestream/releases"
+Issues = "https://github.com/datasette-io/datasette-litestream/issues"
+
+
+[tool.setuptools.package-data]
+litestream = ["bin/*"]
+[tool.setuptools.packages.find]
+where = ["litestream"]

@@ -18,6 +18,7 @@ databases:
 
 plugins:
   datasette-litestream:
+    addr: :9090
     all-replicate:
       - s3://pg-gloria-anthrax-boom-sputter.sfo3.digitaloceanspaces.com/debug/$DB
-      - file://$DB-backup
+      #- file://$DB-backupx

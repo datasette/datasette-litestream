@@ -16,3 +16,7 @@ build
 *.db-shm
 *.db-wal
 .env
+
+*-litestream
+*-backup
+*.whl

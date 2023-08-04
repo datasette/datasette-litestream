@@ -30,12 +30,12 @@ setup(
         "License :: OSI Approved :: Apache Software License",
     ],
     version=VERSION,
-    packages=["datasette_datasette_litestream"],
+    packages=["datasette_litestream"],
     entry_points={
-        "datasette": ["datasette_litestream = datasette_datasette_litestream"]
+        "datasette": ["litestream = datasette_litestream"]
     },
+    package_data={"datasette_litestream": ["templates/*.html"]},
     install_requires=["datasette"],
     extras_require={"test": ["pytest", "pytest-asyncio"]},
-    package_data={"datasette_datasette_litestream": ["static/*", "templates/*"]},
     python_requires=">=3.7",
 )
