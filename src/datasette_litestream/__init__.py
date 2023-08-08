@@ -5,7 +5,23 @@ import subprocess
 import tempfile
 import json
 import httpx
-from litestream import litestream
+import os
+import shutil
+
+def litestream_path():
+    # First try to see if litestream was bundled with that package, in a pre-built wheel
+    wheel_path = Path(__file__).resolve().parent / "bin" / "litestream"
+    if wheel_path.exists():
+        return wheel_path
+
+    # Fallback to any litestream binary on the system.
+    executable_path = shutil.which("litestream")
+
+    if executable_path is None:
+        raise Exception("litestream not found.")
+
+    return executable_path
+
 
 process = None
 
@@ -75,7 +91,7 @@ def litestream_replicate(config):
 
     global process
     process = subprocess.Popen(
-        [litestream.bin_path(), "replicate", "-config", str(config_path)],
+        [litestream_path(), "replicate", "-config", str(config_path)],
         stdout=subprocess.PIPE
     )
     print(process.pid)
@@ -98,3 +114,4 @@ async def litestream_status(scope, receive, datasette, request):
             metrics_by_db[sample.labels.get('db')][sample.name] = sample.value
 
     return Response.json(metrics_by_db)
+    #return Response.html(await datasette.render_template("litestream.html"))
