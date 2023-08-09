@@ -1,4 +1,4 @@
-from datasette import hookimpl
+from datasette import hookimpl, Permission, Forbidden
 from datasette.utils.asgi import Response
 from pathlib import Path
 import subprocess
@@ -27,7 +27,40 @@ def litestream_path():
 
 process = None
 litestream_config = None
+logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=False)
 
+@hookimpl
+def register_permissions(datasette):
+    return [
+        Permission(
+            name="litestream-view-status",
+            abbr=None,
+            description="View litestream statistics and status updates.",
+            takes_database=False,
+            takes_resource=False,
+            default=False,
+        )
+    ]
+
+@hookimpl
+def permission_allowed(actor, action):
+    if action == "litestream-view-status" and actor and actor.get("id") == "root":
+        return True
+
+@hookimpl
+def menu_links(datasette, actor):
+    async def inner():
+        if await datasette.permission_allowed(
+            actor, "litestream-view-status", default=False
+        ) and datasette.plugin_config("datasette-litestream") is not None:
+            return [
+                {
+                    "href": datasette.urls.path("/-/litestream-status"),
+                    "label": "Litestream Status",
+                },
+            ]
+
+    return inner
 
 @hookimpl
 def startup(datasette):
@@ -35,7 +68,6 @@ def startup(datasette):
     litestream_config = {"dbs": []}
 
     plugin_config_top = datasette.plugin_config("datasette-litestream") or {}
-    print("plugin_config_top", plugin_config_top)
 
     if "access-key-id" in plugin_config_top:
         litestream_config["access-key-id"] = plugin_config_top.get("access-key-id")
@@ -51,10 +83,6 @@ def startup(datasette):
     all_replicate = plugin_config_top.get("all-replicate")
 
     for db_name, db in datasette.databases.items():
-        print(
-            f"db_name={db_name} is_mutable={db.is_mutable} is_memory={db.is_memory} path={db.path}"
-        )
-
         if db.path is None:
             continue
 
@@ -91,13 +119,12 @@ def litestream_replicate(config):
     with tempfile.NamedTemporaryFile(suffix=".yml", delete=False) as f:
         f.write(bytes(json.dumps(config), "utf-8"))
         config_path = Path(f.name)
-
     global process
     process = subprocess.Popen(
         [litestream_path(), "replicate", "-config", str(config_path)],
-        stdout=subprocess.PIPE,
+        #stdout=subprocess.PIPE,
+        stderr=logfile,
     )
-    print(process.pid)
 
 
 @hookimpl
@@ -108,6 +135,12 @@ def register_routes():
 
 
 async def litestream_status(scope, receive, datasette, request):
+    if not await datasette.permission_allowed(
+            request.actor, "litestream-view-status", default=False
+        ):
+        raise Forbidden("Permission denied for litestream-view-status")
+
+    global process
 
     metrics_by_db = {}
     go_stats = {}
@@ -148,6 +181,11 @@ async def litestream_status(scope, receive, datasette, request):
         await datasette.render_template(
             "litestream.html",
             context={
+                "process": {
+                    "pid": process.pid,
+                    "status": "alive" if process.poll() is None else "died"
+                },
+                "logs": open(logfile.name, "r").read(),
                 "metrics_enabled": metrics_enabled,
                 # TODO redact credentials if they are in here :(
                 "litestream_config": json.dumps(litestream_config, indent=2),
