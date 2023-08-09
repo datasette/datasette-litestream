@@ -8,7 +8,7 @@ license = {text = "Apache-2.0"}
 classifiers = [
     "License :: OSI Approved :: Apache Software License"
 ]
-dependencies = []
+dependencies = ["datasette", "prometheus-client"]
 
 [project.urls]
 Homepage = "https://github.com/datasette-io/datasette-litestream"

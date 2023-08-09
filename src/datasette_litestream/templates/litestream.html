@@ -8,8 +8,31 @@
 {% block content %}
 <h1>Litestream Status</h1>
 
+
 <pre>
-asdf
+  {{ litestream_config }}
 </pre>
 
+{% if not metrics_enabled %}
+<b>WARNING: metrics-addr was not defined, so no litestream metrics are available.</b>
+{% else %}
+{{ go_stats.get("go_goroutines") }}
+{{ go_stats.get("go_threads") }}
+{% endif %}
+
+{% for db, metrics in metrics_by_db.items() %}
+  <h3>{{ db }}</h3>
+  <dl>
+    {% for key, value in metrics.items() %}
+      <dt>{{ key }}</dt>
+      <dd>{{ value }}</dd>
+    {% endfor %}
+  </dl>
+{% endfor %}
+
+<style>
+  dl {padding-left: 1rem;}
+  dt {font-weight: bold;}
+  dd {padding-left: 2rem;}
+</style>
 {% endblock %}

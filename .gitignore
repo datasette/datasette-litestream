@@ -21,7 +21,7 @@ build
 *-backup
 *.whl
 
-datasette_litestream/bin/*
+src/datasette_litestream/bin/*
 tmp/
 
 *.tar.gz

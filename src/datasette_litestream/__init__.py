@@ -7,12 +7,14 @@ import json
 import httpx
 import os
 import shutil
+from prometheus_client.parser import text_string_to_metric_families
+
 
 def litestream_path():
     # First try to see if litestream was bundled with that package, in a pre-built wheel
     wheel_path = Path(__file__).resolve().parent / "bin" / "litestream"
     if wheel_path.exists():
-        return wheel_path
+        return str(wheel_path)
 
     # Fallback to any litestream binary on the system.
     executable_path = shutil.which("litestream")
@@ -20,16 +22,20 @@ def litestream_path():
     if executable_path is None:
         raise Exception("litestream not found.")
 
-    return executable_path
+    return str(executable_path)
 
 
 process = None
+litestream_config = None
+
 
 @hookimpl
 def startup(datasette):
+    global litestream_config
     litestream_config = {"dbs": []}
 
-    plugin_config_top = datasette.plugin_config("datasette-litestream")
+    plugin_config_top = datasette.plugin_config("datasette-litestream") or {}
+    print("plugin_config_top", plugin_config_top)
 
     if "access-key-id" in plugin_config_top:
         litestream_config["access-key-id"] = plugin_config_top.get("access-key-id")
@@ -39,8 +45,8 @@ def startup(datasette):
             "secret-access-key"
         )
 
-    if "addr" in plugin_config_top:
-        litestream_config["addr"] = plugin_config_top.get("addr")
+    if "metrics-addr" in plugin_config_top:
+        litestream_config["addr"] = plugin_config_top.get("metrics-addr")
 
     all_replicate = plugin_config_top.get("all-replicate")
 
@@ -68,21 +74,18 @@ def startup(datasette):
 
         if all_replicate is not None:
             for i, template in enumerate(all_replicate):
-                url = template.replace("$DB", db_name)
+                url = template.replace("$DB", db_name).replace("$PWD", os.getcwd())
 
                 if "replicas" in db_litestream_config:
                     db_litestream_config["replicas"].append(
-                        {
-                            "url": url,
-                            "name": f"t{i}"
-                        }
+                        {"url": url, "name": f"t{i}"}
                     )
                 else:
                     db_litestream_config["replicas"] = [{"url": url, "name": f"t{i}"}]
 
         litestream_config["dbs"].append(db_litestream_config)
-    print(litestream_config)
     litestream_replicate(litestream_config)
+
 
 def litestream_replicate(config):
     with tempfile.NamedTemporaryFile(suffix=".yml", delete=False) as f:
@@ -92,26 +95,64 @@ def litestream_replicate(config):
     global process
     process = subprocess.Popen(
         [litestream_path(), "replicate", "-config", str(config_path)],
-        stdout=subprocess.PIPE
+        stdout=subprocess.PIPE,
     )
     print(process.pid)
+
 
 @hookimpl
 def register_routes():
     return [
         (r"^/-/litestream-status$", litestream_status),
     ]
-async def litestream_status(scope, receive, datasette, request):
-    metrics_by_db = {}
-    metrics = httpx.get("http://localhost:9090/metrics").text
-    from prometheus_client.parser import text_string_to_metric_families
-    for family in text_string_to_metric_families(metrics):
-      for sample in family.samples:
-        print(sample)
-        if sample.name.startswith("litestream_"):
-            if metrics_by_db.get(sample.labels.get('db')) is None:
-                metrics_by_db[sample.labels.get('db')] = {}
-            metrics_by_db[sample.labels.get('db')][sample.name] = sample.value
 
-    return Response.json(metrics_by_db)
-    #return Response.html(await datasette.render_template("litestream.html"))
+
+async def litestream_status(scope, receive, datasette, request):
+
+    metrics_by_db = {}
+    go_stats = {}
+
+    metrics_enabled = litestream_config.get("addr") is not None
+
+    if metrics_enabled:
+
+      # litestream metrics give the absolute path to the database, so create a mapping
+      # to the datasette db names
+      db_name_lookup = {}
+      for db_name, db in datasette.databases.items():
+          if db.path is None:
+              continue
+          db_name_lookup[str(Path(db.path).resolve())] = db_name
+
+      # TODO detect when non-localhost addresses are used
+      addr = litestream_config.get("addr")
+      metrics = httpx.get(f"http://localhost{addr}/metrics").text
+
+      for family in text_string_to_metric_families(metrics):
+          for sample in family.samples:
+              # litestream_replica_validation_total has `name` and `status` values that I don't understand
+              if (
+                  sample.name.startswith("litestream_")
+                  and sample.name != "litestream_replica_validation_total"
+              ):
+                  db = db_name_lookup[sample.labels.get("db")]
+
+                  if metrics_by_db.get(db) is None:
+                      metrics_by_db[db] = {}
+
+                  metrics_by_db[db][sample.name] = sample.value
+              elif sample.name in ["go_goroutines", "go_threads"]:
+                  go_stats[sample.name] = sample.value
+
+    return Response.html(
+        await datasette.render_template(
+            "litestream.html",
+            context={
+                "metrics_enabled": metrics_enabled,
+                # TODO redact credentials if they are in here :(
+                "litestream_config": json.dumps(litestream_config, indent=2),
+                "metrics_by_db": metrics_by_db,
+                "go_stats": go_stats,
+            },
+        )
+    )
