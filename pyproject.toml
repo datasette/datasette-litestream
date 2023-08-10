@@ -8,7 +8,7 @@ license = {text = "Apache-2.0"}
 classifiers = [
     "License :: OSI Approved :: Apache Software License"
 ]
-dependencies = ["datasette", "prometheus-client"]
+dependencies = ["datasette>=1.0a3", "prometheus-client"]
 
 [project.urls]
 Homepage = "https://github.com/datasette-io/datasette-litestream"
@@ -21,7 +21,7 @@ CI = "https://github.com/datasette-io/datasette-litestream/actions"
 litestream = "datasette_litestream"
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "pytest-asyncio"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
