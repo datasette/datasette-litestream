@@ -24,9 +24,8 @@ jobs:
       with:
         path: $HOME/.local/bin/litestream
         key: ${{ runner.os }}-primes
-
-    - name: Generate Prime Numbers
-      if: steps.cache-litestream.outputs.cache-hit != 'true'
+    - run: mkdir -p $HOME/.local/bin
+    - if: steps.cache-litestream.outputs.cache-hit != 'true'
       run: curl -L https://github.com/benbjohnson/litestream/releases/download/v0.3.11/litestream-v0.3.11-linux-amd64.tar.gz |tar -xz -C $HOME/.local/bin
     - run: echo "$HOME/.local/bin" >> $GITHUB_PATH
     - name: Install dependencies
