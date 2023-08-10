@@ -182,7 +182,11 @@ def startup(datasette):
 
         if all_replicate is not None:
             for i, template in enumerate(all_replicate):
-                url = template.replace("$DB", db_name).replace("$PWD", os.getcwd())
+                url = (
+                    template.replace("$DB_NAME", db_name)
+                    .replace("$DB_DIRECTORY", str(db_path.resolve().parent))
+                    .replace("$PWD", os.getcwd())
+                )
 
                 if "replicas" in db_litestream_config:
                     db_litestream_config["replicas"].append(
