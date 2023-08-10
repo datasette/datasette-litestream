@@ -2,7 +2,7 @@
 
 DATASETTE_LITESTREAM_VERSION="0.0.1a3"
 
-mkdir -p datasette_litestream/bin
+mkdir -p src/datasette_litestream/bin
 
 function build_wheel {
   cp $1 src/datasette_litestream/bin/litestream
@@ -19,7 +19,5 @@ build_wheel tmp/litestream-linux-arm64 "dist/datasette_litestream-$DATASETTE_LIT
 
 rm src/datasette_litestream/bin/litestream
 python3 -m build . --sdist
-mv dist/datasette-litestream-$DATASETTE_LITESTREAM_VERSION.tar.gz dist/datasette-litestream-$DATASETTE_LITESTREAM_VERSION.tar.gz
-
 
 
