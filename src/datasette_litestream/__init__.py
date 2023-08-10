@@ -177,6 +177,7 @@ def startup(datasette):
             "path": str(db_path.resolve()),
         }
         if plugin_config_db is not None:
+            # TODO restrict the possible keys here. We don't want to plugins to redefine "replicas" or "path"
             db_litestream_config = {**db_litestream_config, **plugin_config_db}
 
         if all_replicate is not None:
