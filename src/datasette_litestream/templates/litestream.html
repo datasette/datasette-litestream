@@ -17,21 +17,17 @@ status: {{process.get("status")}}
 </pre>
 
 <h2>Logs</h2>
-<pre>
+<pre class="litestream-logs">
 {{ logs }}
 </pre>
 
 {% if not metrics_enabled %}
 <strong>WARNING: metrics-addr was not defined, so no litestream metrics are available.</strong>
 {% else %}
-
-
 <h2>Metrics</h2>
-
 
 <div><strong>Goroutines</strong>: {{ go_stats.get("go_goroutines") }}</div>
 <div><strong>Go threads</strong>: {{ go_stats.get("go_threads") }}</div>
-
 
 {% for db, metrics in metrics_by_db.items() %}
   <h3>{{ db }}</h3>
@@ -52,12 +48,16 @@ status: {{process.get("status")}}
   </table>
 {% endfor %}
 
-<style>
-  dl {padding-left: 1rem;}
-  dt {font-weight: bold;}
-  dd {padding-left: 2rem;}
-</style>
-
-
 {% endif %}
+
+<style>
+  pre.litestream-logs {
+    max-height: 500px;
+    overflow: auto;
+    background: #2a2a2a;
+    color: white;
+    padding: 1rem;
+    font-size: .9rem;
+  }
+  </style>
 {% endblock %}
