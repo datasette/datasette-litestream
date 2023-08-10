@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DATASETTE_LITESTREAM_VERSION="0.0.1a4"
+DATASETTE_LITESTREAM_VERSION="$(python3 -c "import tomllib; print(tomllib.loads(open('pyproject.toml', 'r').read())['project']['version'])")"
 
 mkdir -p src/datasette_litestream/bin
 
