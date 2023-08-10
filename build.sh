@@ -2,10 +2,10 @@
 
 DATASETTE_LITESTREAM_VERSION="$(python3 -c "import tomllib; print(tomllib.loads(open('pyproject.toml', 'r').read())['project']['version'])")"
 
-mkdir -p src/datasette_litestream/bin
+mkdir -p datasette_litestream/bin
 
 function build_wheel {
-  cp $1 src/datasette_litestream/bin/litestream
+  cp $1 datasette_litestream/bin/litestream
   python3 -m build . --wheel
   mv dist/datasette_litestream-*-py3-none-any.whl $2
 }
@@ -17,7 +17,7 @@ build_wheel tmp/litestream-linux-amd64 "dist/datasette_litestream-$DATASETTE_LIT
 build_wheel tmp/litestream-linux-arm7 "dist/datasette_litestream-$DATASETTE_LITESTREAM_VERSION-py3-none-linux_armv7l.whl"
 build_wheel tmp/litestream-linux-arm64 "dist/datasette_litestream-$DATASETTE_LITESTREAM_VERSION-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
 
-rm src/datasette_litestream/bin/litestream
+rm datasette_litestream/bin/litestream
 python3 -m build . --sdist
 
 

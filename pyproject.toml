@@ -24,7 +24,6 @@ litestream = "datasette_litestream"
 test = ["pytest", "pytest-asyncio"]
 
 [tool.setuptools.packages.find]
-where = ["src"]
 namespaces = false
 
 [tool.setuptools.package-data]
