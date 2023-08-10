@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DATASETTE_LITESTREAM_VERSION="0.0.1a2"
+DATASETTE_LITESTREAM_VERSION="0.0.1a3"
 
 mkdir -p datasette_litestream/bin
 
