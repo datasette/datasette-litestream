@@ -5,7 +5,7 @@
 [![Tests](https://github.com/asg017/datasette-litestream/workflows/Test/badge.svg)](https://github.com/asg017/datasette-litestream/actions?query=workflow%3ATest)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/asg017/datasette-litestream/blob/main/LICENSE)
 
-Experimental Datasette <-> Litestream plugin.
+An experimental Datasette <-> Litestream plugin.
 
 ## Installation
 
@@ -14,8 +14,6 @@ Install this plugin in the same environment as Datasette.
     datasette install datasette-litestream
 
 ## Usage
-
-Usage instructions go here.
 
 ## Development
 
