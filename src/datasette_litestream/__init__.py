@@ -68,7 +68,7 @@ class LitestreamProcess:
 # global variable that tracks each datasette-litestream instance. There is usually just 1,
 # but in test suites there may be multiple Datasette instances.
 # The keys are a UUID generated in the startup hook, values are a LitestreamProcess
-processes: dict[str, LitestreamProcess] = {}
+processes = {}
 
 # The uuid generated at startup is stored on the datasette object, stored in this key attr.
 # Meant so we can retrieve it in the separate litestream_status route
