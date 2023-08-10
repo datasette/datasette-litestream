@@ -10,28 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10", "3.11"]
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: pip
-        cache-dependency-path: setup.py
-    - id: cache-litestream
-      uses: actions/cache@v3
-      with:
-        path: $HOME/.local/bin/litestream
-        key: ${{ runner.os }}-primes
-    - run: mkdir -p $HOME/.local/bin
-    - if: steps.cache-litestream.outputs.cache-hit != 'true'
-      run: curl -L https://github.com/benbjohnson/litestream/releases/download/v0.3.11/litestream-v0.3.11-linux-amd64.tar.gz |tar -xz -C $HOME/.local/bin
-    - run: echo "$HOME/.local/bin" >> $GITHUB_PATH
-    - name: Install dependencies
-      run: |
-        pip install '.[test]'
-    - name: Run tests
-      run: |
-        pytest
-
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: setup.py
+      - id: cache-litestream
+        uses: actions/cache@v3
+        with:
+          path: $HOME/.local/bin/litestream
+          key: ${{ runner.os }}-primes
+      - run: mkdir -p $HOME/.local/bin
+      - if: steps.cache-litestream.outputs.cache-hit != 'true'
+        run: curl -L https://github.com/benbjohnson/litestream/releases/download/v0.3.11/litestream-v0.3.11-linux-amd64.tar.gz |tar -xz -C $HOME/.local/bin
+      - run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Install dependencies
+        run: |
+          pip install '.[test]'
+      - name: Run tests
+        run: |
+          pytest
