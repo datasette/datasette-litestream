@@ -232,6 +232,10 @@ async def litestream_status(scope, receive, datasette, request):
     if litestream_process is None:
         return Response.html("<h1>Litestream not running</h1>")
 
+    replica_operations = {
+        "bytes": [],
+        "total": [],
+    }
     metrics_by_db = {}
     go_stats = {}
 
@@ -248,15 +252,28 @@ async def litestream_status(scope, receive, datasette, request):
 
         # TODO detect when non-localhost addresses are used
         addr = litestream_process.litestream_config.get("addr")
-        metrics = httpx.get(f"http://localhost{addr}/metrics").text
+        metrics_page = httpx.get(f"http://localhost{addr}/metrics").text
 
-        for family in text_string_to_metric_families(metrics):
+        for family in text_string_to_metric_families(metrics_page):
             for sample in family.samples:
-                # litestream_replica_validation_total has `name` and `status` values that I don't understand
-                if (
+                # TODO also  ???
+                if sample.name == "litestream_replica_operation_bytes_total":
+                    replica_operations["bytes"].append({
+                      **sample.labels,
+                      "value": sample.value,
+                    })
+                elif sample.name == "litestream_replica_operation_total":
+                    replica_operations["total"].append({
+                      **sample.labels,
+                      "value": sample.value,
+                    })
+
+                elif (
                     sample.name.startswith("litestream_")
+                    # litestream_replica_validation_total has `name` and `status` values that I don't understand
                     and sample.name != "litestream_replica_validation_total"
                 ):
+                    print(sample.name)
                     db = db_name_lookup[sample.labels.get("db")]
 
                     if metrics_by_db.get(db) is None:
@@ -282,6 +299,7 @@ async def litestream_status(scope, receive, datasette, request):
                 "litestream_config": json.dumps(
                     litestream_process.litestream_config, indent=2
                 ),
+                "replica_operations": replica_operations,
                 "metrics_by_db": metrics_by_db,
                 "go_stats": go_stats,
             },
