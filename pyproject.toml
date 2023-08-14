@@ -1,6 +1,6 @@
 [project]
 name = "datasette-litestream"
-version = "0.0.1a9"
+version = "0.0.1a10"
 description = ""
 readme = "README.md"
 authors = [{name = "Alex Garcia"}]
