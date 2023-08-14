@@ -11,10 +11,10 @@ classifiers = [
 dependencies = ["datasette>=1.0a3", "prometheus-client"]
 
 [project.urls]
-Homepage = "https://github.com/datasette-io/datasette-litestream"
-Changelog = "https://github.com/datasette-io/datasette-litestream/releases"
-Issues = "https://github.com/datasette-io/datasette-litestream/issues"
-CI = "https://github.com/datasette-io/datasette-litestream/actions"
+Homepage = "https://github.com/datasette/datasette-litestream"
+Changelog = "https://github.com/datasette/datasette-litestream/releases"
+Issues = "https://github.com/datasette/datasette-litestream/issues"
+CI = "https://github.com/datasette/datasette-litestream/actions"
 
 
 [project.entry-points.datasette]
