@@ -71,6 +71,9 @@ async def test_basic_db_level(students_db_path):
         },
     )
 
+    # Give it a second to start Litestream
+    time.sleep(1)
+
     response = await datasette.client.get("/-/litestream-status")
     assert response.status_code == 403
 
@@ -110,6 +113,9 @@ async def test_metrics(students_db_path):
             },
         },
     )
+
+    # Give it a second to start Litestream
+    time.sleep(1)
 
     response = await datasette.client.get(
         "/-/litestream-status",
