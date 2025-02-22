@@ -341,7 +341,7 @@ async def litestream_status(scope, receive, datasette, request):
                 "process": {
                     "pid": litestream_process.process.pid,
                     "status": "alive"
-                    if litestream_process.process.poll() is None
+                    if (litestream_process and litestream_process.process.poll() is None)
                     else "died",
                 },
                 "logs": open(litestream_process.logfile.name, "r").read(),
