@@ -103,10 +103,6 @@ class LitestreamProcess:
 
         atexit.register(onexit)
 
-    def __del__(self):
-        """Ensure cleanup on object destruction."""
-        self.stop_replicate()
-
 
 # global variable that tracks each datasette-litestream instance. There is usually just 1,
 # but in test suites there may be multiple Datasette instances.
