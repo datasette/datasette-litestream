@@ -40,6 +40,7 @@ async def test_plugin_is_installed():
 @pytest.mark.asyncio
 async def test_no_litestream_config():
     datasette = Datasette(memory=True)
+    datasette.root_enabled = True
 
     response = await datasette.client.get("/-/litestream-status")
     assert response.status_code == 403
@@ -60,7 +61,7 @@ async def test_basic_db_level(students_db_path):
 
     datasette = Datasette(
         [students_db_path],
-        metadata={
+        config={
             "databases": {
                 "students": {
                     "plugins": {
@@ -70,6 +71,7 @@ async def test_basic_db_level(students_db_path):
             }
         },
     )
+    datasette.root_enabled = True
 
     response = await datasette.client.get("/-/litestream-status")
     assert response.status_code == 403
@@ -99,7 +101,7 @@ async def test_metrics(students_db_path):
 
     datasette = Datasette(
         [students_db_path],
-        metadata={
+        config={
             "plugins": {"datasette-litestream": {"metrics-addr": ":9998"}},
             "databases": {
                 "students": {
@@ -110,6 +112,7 @@ async def test_metrics(students_db_path):
             },
         },
     )
+    datasette.root_enabled = True
 
     response = await datasette.client.get(
         "/-/litestream-status",

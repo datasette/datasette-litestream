@@ -17,8 +17,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: setup.py
+      - uses: astral-sh/setup-uv@v5
       - id: cache-litestream
         uses: actions/cache@v3
         with:
@@ -30,7 +29,7 @@ jobs:
       - run: echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Install dependencies
         run: |
-          pip install '.[test]'
+          uv sync --group dev
       - name: Run tests
         run: |
-          python -m pytest
+          uv run python -m pytest

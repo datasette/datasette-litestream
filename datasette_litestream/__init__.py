@@ -1,4 +1,5 @@
-from datasette import hookimpl, Permission, Forbidden
+from datasette import hookimpl, Forbidden
+from datasette.permissions import Action
 from datasette.utils.asgi import Response
 from pathlib import Path
 import atexit
@@ -93,32 +94,21 @@ def resolve_litestream_path():
 
 
 @hookimpl
-def register_permissions(datasette):
+def register_actions(datasette):
     return [
-        Permission(
+        Action(
             name="litestream-view-status",
-            abbr=None,
             description="View litestream statistics and status updates.",
-            takes_database=False,
-            takes_resource=False,
-            default=False,
         )
     ]
-
-
-@hookimpl
-def permission_allowed(actor, action):
-    # TODO only root can see it?
-    if action == "litestream-view-status" and actor and actor.get("id") == "root":
-        return True
 
 
 @hookimpl
 def menu_links(datasette, actor):
     async def inner():
         if (
-            await datasette.permission_allowed(
-                actor, "litestream-view-status", default=False
+            await datasette.allowed(
+                actor=actor, action="litestream-view-status"
             )
             # TODO why is this needed?
             and datasette.plugin_config("datasette-litestream") is not None
@@ -216,8 +206,8 @@ def register_routes():
 
 
 async def litestream_status(scope, receive, datasette, request):
-    if not await datasette.permission_allowed(
-        request.actor, "litestream-view-status", default=False
+    if not await datasette.allowed(
+        actor=request.actor, action="litestream-view-status"
     ):
         raise Forbidden("Permission denied for litestream-view-status")
 

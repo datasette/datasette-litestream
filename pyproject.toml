@@ -8,7 +8,7 @@ license = {text = "Apache-2.0"}
 classifiers = [
     "License :: OSI Approved :: Apache Software License"
 ]
-dependencies = ["datasette>=1.0a3", "prometheus-client"]
+dependencies = ["datasette>=1.0a20", "prometheus-client"]
 
 [project.urls]
 Homepage = "https://github.com/datasette/datasette-litestream"
@@ -20,8 +20,11 @@ CI = "https://github.com/datasette/datasette-litestream/actions"
 [project.entry-points.datasette]
 litestream = "datasette_litestream"
 
-[project.optional-dependencies]
-test = ["pytest", "pytest-asyncio"]
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio"]
+
+[tool.uv]
+package = true
 
 [tool.setuptools.packages.find]
 namespaces = false
