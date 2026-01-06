@@ -1,4 +1,5 @@
 from datasette.app import Datasette
+from datasette.utils import StartupError
 import pytest
 import sqlite_utils
 from pathlib import Path
@@ -203,7 +204,7 @@ def test_load_credentials_from_command_with_script(tmpdir):
 
 def test_load_credentials_from_command_failure():
     """Test error when credentials command fails."""
-    with pytest.raises(RuntimeError, match="failed with return code"):
+    with pytest.raises(StartupError, match="failed with return code"):
         load_credentials_from_command("false")  # 'false' command always returns 1
 
 
@@ -460,7 +461,7 @@ async def test_credentials_file_not_found_error(students_db_path):
         },
     )
 
-    with pytest.raises(RuntimeError, match="failed to load initial credentials"):
+    with pytest.raises(StartupError, match="failed to load initial credentials"):
         await datasette.invoke_startup()
 
 
@@ -488,5 +489,5 @@ async def test_credentials_command_failure_at_startup(students_db_path):
         },
     )
 
-    with pytest.raises(RuntimeError, match="failed to load initial credentials"):
+    with pytest.raises(StartupError, match="failed to load initial credentials"):
         await datasette.invoke_startup()

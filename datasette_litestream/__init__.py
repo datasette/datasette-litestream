@@ -1,5 +1,6 @@
 from datasette import hookimpl, Forbidden
 from datasette.permissions import Action
+from datasette.utils import StartupError
 from datasette.utils.asgi import Response
 from pathlib import Path
 import asyncio
@@ -36,7 +37,7 @@ def load_credentials_from_command(command: str) -> dict:
     args = shlex.split(command)
     result = subprocess.run(args, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
-        raise RuntimeError(
+        raise StartupError(
             f"Credentials command failed with return code {result.returncode}: {result.stderr}"
         )
     try:
@@ -292,7 +293,7 @@ def startup(datasette):
                 dynamic_creds
             )
         except Exception as e:
-            raise RuntimeError(
+            raise StartupError(
                 f"datasette-litestream: failed to load initial credentials: {e}"
             ) from e
     else:
