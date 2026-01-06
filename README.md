@@ -9,11 +9,11 @@ A Datasette <-> Litestream plugin.
 
 ## Installation
 
-The plugin requires a recent alpha version of Datasette 1.0, whcih can be installed with:
+The plugin requires a recent alpha version of Datasette 1.0:
 
-    pip install datasette==1.0a6
+    pip install 'datasette>=1.0a20'
 
-Then install this plugin in the same environment as Datasette.
+Then install this plugin in the same environment as Datasette:
 
     datasette install datasette-litestream
 
@@ -65,8 +65,8 @@ Some configuration in the `metadata.yaml` will be used to auto-generate the [`li
 
 The following are valid keys that are allowed when specifying top-level plugin configuration:
 
-- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see aboce for details.
-- `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use which caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
+- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details.
+- `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use with caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
 - `access-key-id`: An alternate way to provide a S3 access key (though the `LITESTREAM_ACCESS_KEY_ID` environment variable is preferred).
 - `secret-access-key`: An alternate way to provide a S3 secret key (though the `LITESTREAM_SECRET_ACCESS_KEY` environment variable is preferred).
 - `session-token`: Optional AWS session token for temporary credentials (e.g., when using AWS STS).
@@ -141,14 +141,6 @@ The command should output JSON to stdout in the same format:
 
 The `session-token` field is optional.
 
-Example script (`fetch_creds.sh`):
-
-```bash
-#!/bin/bash
-# Fetch credentials from AWS Secrets Manager, Vault, etc.
-aws secretsmanager get-secret-value --secret-id my-litestream-creds --query SecretString --output text
-```
-
 #### How credential refresh works
 
 1. On startup, credentials are loaded from the file or command
@@ -187,16 +179,12 @@ See [Litestream Database settings](https://litestream.io/reference/config/#datab
 
 ## Development
 
-To set up this plugin locally, first checkout the code. Then create a new virtual environment:
-
-    cd datasette-litestream
-    python3 -m venv venv
-    source venv/bin/activate
-
-Now install the dependencies and test dependencies:
-
-    pip install -e '.[test]'
-
-To run the tests:
-
-    pytest
+To set up this plugin locally, first checkout the code. Then run the tests using [uv](https://docs.astral.sh/uv/):
+```bash
+cd datasette-litestream
+uv run pytest
+```
+To run Datasette with the plugin installed:
+```bash
+uv run datasette -c config.yaml
+```
