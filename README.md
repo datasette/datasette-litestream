@@ -69,6 +69,7 @@ The following are valid keys that are allowed when specifying top-level plugin c
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use which caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
 - `access-key-id`: An alternate way to provide a S3 access key (though the `LITESTREAM_ACCESS_KEY_ID` environment variable is preferred).
 - `secret-access-key`: An alternate way to provide a S3 secret key (though the `LITESTREAM_SECRET_ACCESS_KEY` environment variable is preferred).
+- `session-token`: Optional AWS session token for temporary credentials (e.g., when using AWS STS).
 - `credentials-file`: Path to a JSON file containing credentials (see Dynamic Credentials below).
 - `credentials-command`: A CLI command to execute that returns JSON credentials (see Dynamic Credentials below).
 - `credentials-refresh-interval`: How often (in seconds) to check for credential changes. Required when using `credentials-file` or `credentials-command`.
@@ -101,9 +102,12 @@ Create a JSON file with your credentials:
 ```json
 {
   "access-key-id": "AKIAIOSFODNN7EXAMPLE",
-  "secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+  "secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  "session-token": "optional-session-token-for-temporary-credentials"
 }
 ```
+
+The `session-token` field is optional and only needed when using temporary AWS credentials (e.g., from AWS STS).
 
 Then configure the plugin to read from this file:
 
@@ -130,9 +134,12 @@ The command should output JSON to stdout in the same format:
 ```json
 {
   "access-key-id": "AKIAIOSFODNN7EXAMPLE",
-  "secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+  "secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  "session-token": "optional-session-token"
 }
 ```
+
+The `session-token` field is optional.
 
 Example script (`fetch_creds.sh`):
 

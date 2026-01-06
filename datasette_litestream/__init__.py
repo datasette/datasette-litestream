@@ -26,10 +26,13 @@ def load_credentials_from_file(path: str) -> dict:
         raise ValueError(
             f"Credentials file {path} must contain 'access-key-id' and 'secret-access-key'"
         )
-    return {
+    result = {
         "access-key-id": data["access-key-id"],
         "secret-access-key": data["secret-access-key"],
     }
+    if "session-token" in data:
+        result["session-token"] = data["session-token"]
+    return result
 
 
 def load_credentials_from_command(command: str) -> dict:
@@ -48,10 +51,13 @@ def load_credentials_from_command(command: str) -> dict:
         raise ValueError(
             "Credentials command output must contain 'access-key-id' and 'secret-access-key'"
         )
-    return {
+    creds = {
         "access-key-id": data["access-key-id"],
         "secret-access-key": data["secret-access-key"],
     }
+    if "session-token" in data:
+        creds["session-token"] = data["session-token"]
+    return creds
 
 
 def get_dynamic_credentials(plugin_config: dict) -> dict:
@@ -155,6 +161,11 @@ class LitestreamProcess:
         """Update credentials in the litestream config."""
         self.litestream_config["access-key-id"] = new_creds["access-key-id"]
         self.litestream_config["secret-access-key"] = new_creds["secret-access-key"]
+        if "session-token" in new_creds:
+            self.litestream_config["session-token"] = new_creds["session-token"]
+        elif "session-token" in self.litestream_config:
+            # Remove session token if no longer present in new credentials
+            del self.litestream_config["session-token"]
         self.current_credentials_hash = credentials_hash(new_creds)
 
     def restart_with_new_credentials(self, new_creds: dict):
@@ -289,6 +300,10 @@ def startup(datasette):
             litestream_process.litestream_config["secret-access-key"] = dynamic_creds[
                 "secret-access-key"
             ]
+            if "session-token" in dynamic_creds:
+                litestream_process.litestream_config["session-token"] = dynamic_creds[
+                    "session-token"
+                ]
             litestream_process.current_credentials_hash = credentials_hash(
                 dynamic_creds
             )
@@ -306,6 +321,11 @@ def startup(datasette):
         if "secret-access-key" in plugin_config_top:
             litestream_process.litestream_config["secret-access-key"] = (
                 plugin_config_top.get("secret-access-key")
+            )
+
+        if "session-token" in plugin_config_top:
+            litestream_process.litestream_config["session-token"] = (
+                plugin_config_top.get("session-token")
             )
 
     if "metrics-addr" in plugin_config_top:

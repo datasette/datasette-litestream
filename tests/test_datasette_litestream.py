@@ -152,6 +152,27 @@ def test_load_credentials_from_file(tmpdir):
     result = load_credentials_from_file(str(creds_file))
     assert result["access-key-id"] == "AKIATEST123"
     assert result["secret-access-key"] == "secretkey456"
+    assert "session-token" not in result
+
+
+def test_load_credentials_from_file_with_session_token(tmpdir):
+    """Test loading credentials with session token from a JSON file."""
+    creds_file = tmpdir / "creds.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access-key-id": "AKIATEST123",
+                "secret-access-key": "secretkey456",
+                "session-token": "sessiontoken789",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_credentials_from_file(str(creds_file))
+    assert result["access-key-id"] == "AKIATEST123"
+    assert result["secret-access-key"] == "secretkey456"
+    assert result["session-token"] == "sessiontoken789"
 
 
 def test_load_credentials_from_file_missing_keys(tmpdir):
@@ -183,6 +204,23 @@ def test_load_credentials_from_command():
     result = load_credentials_from_command(f"echo '{creds_json}'")
     assert result["access-key-id"] == "AKIACMD789"
     assert result["secret-access-key"] == "cmdsecret012"
+    assert "session-token" not in result
+
+
+def test_load_credentials_from_command_with_session_token():
+    """Test loading credentials with session token from a CLI command."""
+    creds_json = json.dumps(
+        {
+            "access-key-id": "AKIACMD789",
+            "secret-access-key": "cmdsecret012",
+            "session-token": "cmdsessiontoken345",
+        }
+    )
+    # Use echo to output JSON
+    result = load_credentials_from_command(f"echo '{creds_json}'")
+    assert result["access-key-id"] == "AKIACMD789"
+    assert result["secret-access-key"] == "cmdsecret012"
+    assert result["session-token"] == "cmdsessiontoken345"
 
 
 def test_load_credentials_from_command_with_script(tmpdir):
@@ -257,6 +295,41 @@ def test_get_dynamic_credentials_neither():
     assert result is None
 
 
+def test_get_dynamic_credentials_with_session_token_file(tmpdir):
+    """Test get_dynamic_credentials with session token from file."""
+    creds_file = tmpdir / "creds.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access-key-id": "AKIAFILE",
+                "secret-access-key": "filesecret",
+                "session-token": "filesessiontoken",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = get_dynamic_credentials({"credentials-file": str(creds_file)})
+    assert result["access-key-id"] == "AKIAFILE"
+    assert result["secret-access-key"] == "filesecret"
+    assert result["session-token"] == "filesessiontoken"
+
+
+def test_get_dynamic_credentials_with_session_token_command():
+    """Test get_dynamic_credentials with session token from command."""
+    creds_json = json.dumps(
+        {
+            "access-key-id": "AKIACMD",
+            "secret-access-key": "cmdsecret",
+            "session-token": "cmdsessiontoken",
+        }
+    )
+    result = get_dynamic_credentials({"credentials-command": f"echo '{creds_json}'"})
+    assert result["access-key-id"] == "AKIACMD"
+    assert result["secret-access-key"] == "cmdsecret"
+    assert result["session-token"] == "cmdsessiontoken"
+
+
 def test_credentials_hash():
     """Test credentials hash function."""
     creds1 = {"access-key-id": "key1", "secret-access-key": "secret1"}
@@ -266,6 +339,35 @@ def test_credentials_hash():
     assert credentials_hash(creds1) == credentials_hash(creds2)
     assert credentials_hash(creds1) != credentials_hash(creds3)
     assert credentials_hash(None) == ""
+
+
+def test_credentials_hash_with_session_token():
+    """Test credentials hash includes session token."""
+    creds_no_token = {"access-key-id": "key1", "secret-access-key": "secret1"}
+    creds_with_token = {
+        "access-key-id": "key1",
+        "secret-access-key": "secret1",
+        "session-token": "token1",
+    }
+    creds_with_different_token = {
+        "access-key-id": "key1",
+        "secret-access-key": "secret1",
+        "session-token": "token2",
+    }
+
+    # Credentials with and without token should have different hashes
+    assert credentials_hash(creds_no_token) != credentials_hash(creds_with_token)
+    # Different session tokens should produce different hashes
+    assert credentials_hash(creds_with_token) != credentials_hash(
+        creds_with_different_token
+    )
+    # Same credentials with same token should have same hash
+    creds_with_token_copy = {
+        "access-key-id": "key1",
+        "secret-access-key": "secret1",
+        "session-token": "token1",
+    }
+    assert credentials_hash(creds_with_token) == credentials_hash(creds_with_token_copy)
 
 
 # Integration tests for dynamic credentials
