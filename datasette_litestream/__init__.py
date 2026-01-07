@@ -475,7 +475,6 @@ async def litestream_status(scope, receive, datasette, request):
                     # litestream_replica_validation_total has `name` and `status` values that I don't understand
                     and sample.name != "litestream_replica_validation_total"
                 ):
-                    print(sample.name)
                     db = db_name_lookup[sample.labels.get("db")]
 
                     if metrics_by_db.get(db) is None:
