@@ -11,6 +11,7 @@ from datasette_litestream import (
     load_credentials_from_command,
     get_dynamic_credentials,
     credentials_hash,
+    redact_credentials,
 )
 
 actor_root = {"a": {"id": "root"}}
@@ -593,3 +594,97 @@ async def test_credentials_command_failure_at_startup(students_db_path):
 
     with pytest.raises(StartupError, match="failed to load initial credentials"):
         await datasette.invoke_startup()
+
+
+# Tests for credential redaction
+
+
+def test_redact_credentials_basic():
+    """Test that secret-access-key is redacted."""
+    config = {
+        "access-key-id": "AKIATEST",
+        "secret-access-key": "supersecret123",
+        "dbs": [],
+    }
+    result = redact_credentials(config)
+    assert result["access-key-id"] == "AKIATEST"
+    assert result["secret-access-key"] == "***REDACTED***"
+    assert result["dbs"] == []
+
+
+def test_redact_credentials_with_session_token():
+    """Test that session-token is also redacted."""
+    config = {
+        "access-key-id": "AKIATEST",
+        "secret-access-key": "supersecret123",
+        "session-token": "sessiontoken456",
+        "dbs": [],
+    }
+    result = redact_credentials(config)
+    assert result["access-key-id"] == "AKIATEST"
+    assert result["secret-access-key"] == "***REDACTED***"
+    assert result["session-token"] == "***REDACTED***"
+    assert result["dbs"] == []
+
+
+def test_redact_credentials_without_secrets():
+    """Test redaction when no secrets are present."""
+    config = {
+        "dbs": [{"path": "/data/db.sqlite"}],
+        "addr": ":9999",
+    }
+    result = redact_credentials(config)
+    assert result == config
+
+
+@pytest.mark.asyncio
+async def test_credentials_redacted_in_status_page(students_db_path, tmpdir):
+    """Test that secret-access-key and session-token are redacted on the status page."""
+    creds_file = tmpdir / "creds.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access-key-id": "AKIAVISIBLE",
+                "secret-access-key": "supersecretvalue789",
+                "session-token": "sessiontokenvalue123",
+            }
+        ),
+        encoding="utf-8",
+    )
+    backup_dir = str(Path(students_db_path).parents[0] / "students-backup")
+
+    datasette = Datasette(
+        [students_db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "credentials-file": str(creds_file),
+                    "credentials-refresh-interval": 300,
+                }
+            },
+            "databases": {
+                "students": {
+                    "plugins": {
+                        "datasette-litestream": {"replicas": [{"path": backup_dir}]}
+                    }
+                }
+            },
+        },
+    )
+    datasette.root_enabled = True
+
+    response = await datasette.client.get(
+        "/-/litestream-status",
+        cookies={"ds_actor": datasette.sign(actor_root, "actor")},
+    )
+    assert response.status_code == 200
+
+    # The access key ID should be visible
+    assert "AKIAVISIBLE" in response.text
+
+    # The secret values should NOT be visible
+    assert "supersecretvalue789" not in response.text
+    assert "sessiontokenvalue123" not in response.text
+
+    # The redacted marker should be visible instead
+    assert "***REDACTED***" in response.text

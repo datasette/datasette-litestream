@@ -79,6 +79,20 @@ def credentials_hash(creds: dict) -> str:
     return json.dumps(creds, sort_keys=True)
 
 
+REDACTED_KEYS = {"secret-access-key", "session-token"}
+
+
+def redact_credentials(config: dict) -> dict:
+    """Return a copy of config with sensitive credentials redacted."""
+    redacted = {}
+    for key, value in config.items():
+        if key in REDACTED_KEYS:
+            redacted[key] = "***REDACTED***"
+        else:
+            redacted[key] = value
+    return redacted
+
+
 class LitestreamProcess:
     """Manages a litestream subprocess for database replication."""
 
@@ -483,9 +497,8 @@ async def litestream_status(scope, receive, datasette, request):
                 },
                 "logs": open(litestream_process.logfile.name, "r").read(),
                 "metrics_enabled": metrics_enabled,
-                # TODO redact credentials if they are in here :(
                 "litestream_config": json.dumps(
-                    litestream_process.litestream_config, indent=2
+                    redact_credentials(litestream_process.litestream_config), indent=2
                 ),
                 "replica_operations": replica_operations,
                 "metrics_by_db": metrics_by_db,
