@@ -742,11 +742,14 @@ async def test_credential_refresh_task_is_stored(students_db_path, tmpdir):
     assert litestream_process is not None, "LitestreamProcess should exist"
 
     # The refresh task should be stored on the process to prevent GC
-    assert hasattr(litestream_process, "_refresh_task"), \
-        "LitestreamProcess should have _refresh_task attribute"
-    assert litestream_process._refresh_task is not None, \
-        "Refresh task should be stored (not None) when using dynamic credentials"
+    assert hasattr(
+        litestream_process, "_refresh_task"
+    ), "LitestreamProcess should have _refresh_task attribute"
+    assert (
+        litestream_process._refresh_task is not None
+    ), "Refresh task should be stored (not None) when using dynamic credentials"
 
     # The task should be pending (not done)
-    assert not litestream_process._refresh_task.done(), \
-        "Refresh task should still be running"
+    assert (
+        not litestream_process._refresh_task.done()
+    ), "Refresh task should still be running"

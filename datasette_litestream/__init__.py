@@ -126,13 +126,34 @@ class LitestreamProcess:
 
         self.configfile = tempfile.NamedTemporaryFile(suffix=".yml", delete=False)
 
+        # Build environment - litestream needs credentials as env vars when using session tokens
+        env = os.environ.copy()
+        if "session-token" in self.litestream_config:
+            # When using session tokens (STS credentials), pass all credentials via environment
+            # because litestream doesn't support session-token in config file and prefers
+            # config file credentials over env vars
+            env["LITESTREAM_ACCESS_KEY_ID"] = self.litestream_config["access-key-id"]
+            env["LITESTREAM_SECRET_ACCESS_KEY"] = self.litestream_config[
+                "secret-access-key"
+            ]
+            env["AWS_SESSION_TOKEN"] = self.litestream_config["session-token"]
+            # Write config without credentials - they'll come from env vars
+            config_for_file = {
+                k: v
+                for k, v in self.litestream_config.items()
+                if k not in ("access-key-id", "secret-access-key", "session-token")
+            }
+        else:
+            config_for_file = self.litestream_config
+
         with self.configfile as f:
-            f.write(bytes(json.dumps(self.litestream_config), "utf-8"))
+            f.write(bytes(json.dumps(config_for_file), "utf-8"))
             config_path = Path(f.name)
 
         self.process = subprocess.Popen(
             [litestream_path, "replicate", "-config", str(config_path)],
             stderr=self.logfile,
+            env=env,
         )
 
         # wait 500ms to see if there are instant errors (typically config typos)
