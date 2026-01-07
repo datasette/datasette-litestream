@@ -23,7 +23,7 @@ def load_credentials_from_file(path: str) -> dict:
     with open(path) as f:
         data = json.load(f)
     if "access-key-id" not in data or "secret-access-key" not in data:
-        raise ValueError(
+        raise StartupError(
             f"Credentials file {path} must contain 'access-key-id' and 'secret-access-key'"
         )
     result = {
@@ -46,9 +46,9 @@ def load_credentials_from_command(command: str) -> dict:
     try:
         data = json.loads(result.stdout)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Credentials command output is not valid JSON: {e}")
+        raise StartupError(f"Credentials command output is not valid JSON: {e}")
     if "access-key-id" not in data or "secret-access-key" not in data:
-        raise ValueError(
+        raise StartupError(
             "Credentials command output must contain 'access-key-id' and 'secret-access-key'"
         )
     creds = {
@@ -318,14 +318,14 @@ def startup(datasette):
     credentials_refresh_interval = plugin_config_top.get("credentials-refresh-interval")
 
     if credentials_file and credentials_command:
-        raise ValueError(
+        raise StartupError(
             "datasette-litestream: cannot specify both 'credentials-file' and 'credentials-command'"
         )
 
     uses_dynamic_credentials = credentials_file or credentials_command
 
     if uses_dynamic_credentials and not credentials_refresh_interval:
-        raise ValueError(
+        raise StartupError(
             "datasette-litestream: 'credentials-refresh-interval' is required when using "
             "'credentials-file' or 'credentials-command'"
         )

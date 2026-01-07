@@ -185,7 +185,7 @@ def test_load_credentials_from_file_missing_keys(tmpdir):
         json.dumps({"access-key-id": "AKIATEST123"}), encoding="utf-8"
     )
 
-    with pytest.raises(ValueError, match="must contain"):
+    with pytest.raises(StartupError, match="must contain"):
         load_credentials_from_file(str(creds_file))
 
 
@@ -251,13 +251,13 @@ def test_load_credentials_from_command_failure():
 
 def test_load_credentials_from_command_invalid_json():
     """Test error when credentials command outputs invalid JSON."""
-    with pytest.raises(ValueError, match="not valid JSON"):
+    with pytest.raises(StartupError, match="not valid JSON"):
         load_credentials_from_command("echo 'not json'")
 
 
 def test_load_credentials_from_command_missing_keys():
     """Test error when credentials command output is missing required keys."""
-    with pytest.raises(ValueError, match="must contain"):
+    with pytest.raises(StartupError, match="must contain"):
         load_credentials_from_command('echo \'{"access-key-id": "test"}\'')
 
 
@@ -411,7 +411,7 @@ async def test_credentials_file_and_command_error(students_db_path, tmpdir):
         },
     )
 
-    with pytest.raises(ValueError, match="cannot specify both"):
+    with pytest.raises(StartupError, match="cannot specify both"):
         await datasette.invoke_startup()
 
 
@@ -448,7 +448,7 @@ async def test_credentials_refresh_interval_required(students_db_path, tmpdir):
         },
     )
 
-    with pytest.raises(ValueError, match="credentials-refresh-interval.*required"):
+    with pytest.raises(StartupError, match="credentials-refresh-interval.*required"):
         await datasette.invoke_startup()
 
 
