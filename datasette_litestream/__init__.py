@@ -501,7 +501,11 @@ async def litestream_status(scope, receive, datasette, request):
                     # litestream_replica_validation_total has `name` and `status` values that I don't understand
                     and sample.name != "litestream_replica_validation_total"
                 ):
-                    db = db_name_lookup[sample.labels.get("db")]
+                    db_path = sample.labels.get("db")
+                    db = db_name_lookup.get(db_path)
+                    if db is None:
+                        # Path from metrics may not match resolved path (e.g. /tmp vs /private/tmp)
+                        continue
 
                     if metrics_by_db.get(db) is None:
                         metrics_by_db[db] = {}
