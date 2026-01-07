@@ -114,6 +114,9 @@ class LitestreamProcess:
     # atexit handler function (stored so we can unregister it)
     _atexit_handler = None
 
+    # Background task for credential refresh (stored to prevent GC)
+    _refresh_task = None
+
     def __init__(self):
         self.logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=True)
 
@@ -399,7 +402,7 @@ def startup(datasette):
 
     # Schedule credential refresh if using dynamic credentials
     if uses_dynamic_credentials:
-        asyncio.create_task(
+        litestream_process._refresh_task = asyncio.create_task(
             credential_refresh_loop(
                 startup_id, plugin_config_top, credentials_refresh_interval
             )

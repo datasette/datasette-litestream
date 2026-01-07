@@ -12,6 +12,8 @@ from datasette_litestream import (
     get_dynamic_credentials,
     credentials_hash,
     redact_credentials,
+    processes,
+    DATASETTE_LITESTREAM_PROCESS_KEY,
 )
 
 actor_root = {"a": {"id": "root"}}
@@ -688,3 +690,63 @@ async def test_credentials_redacted_in_status_page(students_db_path, tmpdir):
 
     # The redacted marker should be visible instead
     assert "***REDACTED***" in response.text
+
+
+@pytest.mark.asyncio
+async def test_credential_refresh_task_is_stored(students_db_path, tmpdir):
+    """Test that the credential refresh task is stored to prevent garbage collection.
+
+    This prevents the "Task was destroyed but it is pending!" warning that occurs
+    when asyncio.create_task() is called but the returned task is not stored.
+    """
+    creds_file = tmpdir / "creds.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access-key-id": "AKIATEST",
+                "secret-access-key": "secrettest",
+            }
+        ),
+        encoding="utf-8",
+    )
+    backup_dir = str(Path(students_db_path).parents[0] / "students-backup")
+
+    datasette = Datasette(
+        [students_db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "credentials-file": str(creds_file),
+                    "credentials-refresh-interval": 300,
+                }
+            },
+            "databases": {
+                "students": {
+                    "plugins": {
+                        "datasette-litestream": {"replicas": [{"path": backup_dir}]}
+                    }
+                }
+            },
+        },
+    )
+
+    # Make a request to trigger startup
+    response = await datasette.client.get("/-/plugins.json")
+    assert response.status_code == 200
+
+    # Get the LitestreamProcess instance
+    startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, None)
+    assert startup_id is not None, "Datasette should have a litestream process key"
+
+    litestream_process = processes.get(startup_id)
+    assert litestream_process is not None, "LitestreamProcess should exist"
+
+    # The refresh task should be stored on the process to prevent GC
+    assert hasattr(litestream_process, "_refresh_task"), \
+        "LitestreamProcess should have _refresh_task attribute"
+    assert litestream_process._refresh_task is not None, \
+        "Refresh task should be stored (not None) when using dynamic credentials"
+
+    # The task should be pending (not done)
+    assert not litestream_process._refresh_task.done(), \
+        "Refresh task should still be running"
