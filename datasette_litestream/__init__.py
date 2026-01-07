@@ -131,11 +131,13 @@ class LitestreamProcess:
         if "session-token" in self.litestream_config:
             # When using session tokens (STS credentials), pass all credentials via environment
             # because litestream doesn't support session-token in config file and prefers
-            # config file credentials over env vars
-            env["LITESTREAM_ACCESS_KEY_ID"] = self.litestream_config["access-key-id"]
-            env["LITESTREAM_SECRET_ACCESS_KEY"] = self.litestream_config[
-                "secret-access-key"
-            ]
+            # config file credentials over env vars.
+            # We must use AWS_* vars directly (not LITESTREAM_*) because litestream's
+            # applyLitestreamEnv() only copies LITESTREAM_* to AWS_* if AWS_* is not already set.
+            # If the user has existing AWS credentials in their environment, they would take
+            # precedence and cause "InvalidToken" errors when combined with our session token.
+            env["AWS_ACCESS_KEY_ID"] = self.litestream_config["access-key-id"]
+            env["AWS_SECRET_ACCESS_KEY"] = self.litestream_config["secret-access-key"]
             env["AWS_SESSION_TOKEN"] = self.litestream_config["session-token"]
             # Write config without credentials - they'll come from env vars
             config_for_file = {
