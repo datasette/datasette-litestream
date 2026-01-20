@@ -10,15 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: setup.py
+      - uses: astral-sh/setup-uv@v5
       - id: cache-litestream
         uses: actions/cache@v3
         with:
@@ -28,9 +27,6 @@ jobs:
       - if: steps.cache-litestream.outputs.cache-hit != 'true'
         run: curl -L https://github.com/benbjohnson/litestream/releases/download/v0.3.11/litestream-v0.3.11-linux-amd64.tar.gz |tar -xz -C $HOME/.local/bin
       - run: echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - name: Install dependencies
-        run: |
-          pip install '.[test]'
       - name: Run tests
         run: |
-          python -m pytest
+          uv run python -m pytest

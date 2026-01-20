@@ -9,11 +9,11 @@ A Datasette <-> Litestream plugin.
 
 ## Installation
 
-The plugin requires a recent alpha version of Datasette 1.0, whcih can be installed with:
+The plugin requires a recent alpha version of Datasette 1.0:
 
-    pip install datasette==1.0a6
+    pip install 'datasette>=1.0a20'
 
-Then install this plugin in the same environment as Datasette.
+Then install this plugin in the same environment as Datasette:
 
     datasette install datasette-litestream
 
@@ -65,10 +65,14 @@ Some configuration in the `metadata.yaml` will be used to auto-generate the [`li
 
 The following are valid keys that are allowed when specifying top-level plugin configuration:
 
-- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see aboce for details.
-- `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use which caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
+- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details.
+- `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use with caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
 - `access-key-id`: An alternate way to provide a S3 access key (though the `LITESTREAM_ACCESS_KEY_ID` environment variable is preferred).
 - `secret-access-key`: An alternate way to provide a S3 secret key (though the `LITESTREAM_SECRET_ACCESS_KEY` environment variable is preferred).
+- `session-token`: Optional AWS session token for temporary credentials (e.g., when using AWS STS).
+- `credentials-file`: Path to a JSON file containing credentials (see Dynamic Credentials below).
+- `credentials-command`: A CLI command to execute that returns JSON credentials (see Dynamic Credentials below).
+- `credentials-refresh-interval`: How often (in seconds) to check for credential changes. Required when using `credentials-file` or `credentials-command`.
 
 None of these keys are required.
 
@@ -84,6 +88,68 @@ plugins:
     access-key-id: $YOUR_KEY
     secret-access-key: $YOUR_SECRET
 ```
+
+### Dynamic Credentials
+
+For environments where credentials rotate or are fetched dynamically (e.g., from a secrets manager), you can configure `datasette-litestream` to read credentials from a file or execute a command, and periodically check for changes.
+
+**Important:** You cannot specify both `credentials-file` and `credentials-command` - use one or the other.
+
+#### Reading credentials from a file
+
+Create a JSON file with your credentials:
+
+```json
+{
+  "access-key-id": "AKIAIOSFODNN7EXAMPLE",
+  "secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  "session-token": "optional-session-token-for-temporary-credentials"
+}
+```
+
+The `session-token` field is optional and only needed when using temporary AWS credentials (e.g., from AWS STS).
+
+Then configure the plugin to read from this file:
+
+```yaml
+plugins:
+  datasette-litestream:
+    credentials-file: /path/to/credentials.json
+    credentials-refresh-interval: 300  # Check every 5 minutes
+```
+
+#### Reading credentials from a command
+
+You can also execute a CLI command that outputs JSON credentials. This is useful for integrating with secrets managers or credential vending services:
+
+```yaml
+plugins:
+  datasette-litestream:
+    credentials-command: ./fetch_creds.sh --bucket my-bucket
+    credentials-refresh-interval: 300  # Check every 5 minutes
+```
+
+The command should output JSON to stdout in the same format:
+
+```json
+{
+  "access-key-id": "AKIAIOSFODNN7EXAMPLE",
+  "secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  "session-token": "optional-session-token"
+}
+```
+
+The `session-token` field is optional.
+
+#### How credential refresh works
+
+1. On startup, credentials are loaded from the file or command
+2. Every `credentials-refresh-interval` seconds, the file is re-read or the command is re-executed
+3. If the credentials have changed, `datasette-litestream` will:
+   - Stop the current litestream process
+   - Update the configuration with new credentials
+   - Start a new litestream process
+4. If loading credentials fails during a refresh check, the Datasette process will exit with an error
 
 ### Database-level
 
@@ -113,16 +179,12 @@ See [Litestream Database settings](https://litestream.io/reference/config/#datab
 
 ## Development
 
-To set up this plugin locally, first checkout the code. Then create a new virtual environment:
-
-    cd datasette-litestream
-    python3 -m venv venv
-    source venv/bin/activate
-
-Now install the dependencies and test dependencies:
-
-    pip install -e '.[test]'
-
-To run the tests:
-
-    pytest
+To set up this plugin locally, first checkout the code. Then run the tests using [uv](https://docs.astral.sh/uv/):
+```bash
+cd datasette-litestream
+uv run pytest
+```
+To run Datasette with the plugin installed:
+```bash
+uv run datasette -c config.yaml
+```
