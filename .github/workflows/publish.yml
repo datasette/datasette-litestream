@@ -33,9 +33,16 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install dependencies
         run: |
           pip install setuptools wheel twine build
+      - name: Build frontend
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build
       - name: Build wheels
         run: |
           ./download.sh

@@ -1,11 +1,11 @@
 [project]
 name = "datasette-litestream"
-version = "0.2a0"
-description = ""
+version = "0.3a0"
+description = "Datasette plugin for continuously backing up SQLite databases with Litestream"
 readme = "README.md"
 authors = [{name = "Alex Garcia"}]
 license = "Apache-2.0"
-dependencies = ["datasette>=1.0a20", "prometheus-client"]
+dependencies = ["datasette>=1.0a20", "httpx", "prometheus-client"]
 requires-python = ">=3.10"
 
 [project.urls]
@@ -27,4 +27,4 @@ package = true
 namespaces = false
 
 [tool.setuptools.package-data]
-datasette_litestream = ["bin/*", "templates/*.html"]
+datasette_litestream = ["bin/*", "templates/*.html", "static/**/*", "manifest.json"]

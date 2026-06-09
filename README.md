@@ -7,6 +7,13 @@
 
 A Datasette <-> Litestream plugin.
 
+This version targets **Litestream 0.5.x**. It runs a single long-lived
+`litestream replicate` daemon with its [control socket](https://litestream.io/)
+enabled, and registers/unregisters databases with that daemon at runtime — so
+databases can be added to or removed from replication without restarting
+Litestream. (Litestream 0.5 replicates each database to exactly one
+destination; the older multi-replica `replicas:` lists are no longer supported.)
+
 ## Installation
 
 The plugin requires a recent alpha version of Datasette 1.0:
@@ -28,8 +35,7 @@ databases:
   my_database:
     plugins:
       datasette-litestream:
-        replicas:
-          - url: s3://my-bucket/my_database
+        replica: s3://my-bucket/my_database
 ```
 
 Then make sure you export `LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY` with your S3 credentials (or `AWS_ACCESS_KEY_ID` `AWS_SECRET_ACCESS_KEY`), then run with:
@@ -146,45 +152,122 @@ The `session-token` field is optional.
 1. On startup, credentials are loaded from the file or command
 2. Every `credentials-refresh-interval` seconds, the file is re-read or the command is re-executed
 3. If the credentials have changed, `datasette-litestream` will:
-   - Stop the current litestream process
-   - Update the configuration with new credentials
-   - Start a new litestream process
+   - Stop the current litestream daemon
+   - Restart it with the new credentials in its environment
+   - Re-register every database that was being replicated
 4. If loading credentials fails during a refresh check, the Datasette process will exit with an error
+
+Credentials are passed to Litestream through the daemon's environment (as
+`AWS_*` variables) rather than written into the generated config file, so they
+never appear on the status page.
 
 ### Database-level
 
-The following options are allowed on database-level plugin configuration.
+The following option is allowed on database-level plugin configuration.
 
-- `replicas`
-- `monitor-interval`
-- `checkpoint-interval`
-- `min-checkpoint-page-count`
-- `max-checkpoint-page-count`
+- `replica`: the single replica URL for this database (e.g. `s3://...` or `file://...`).
 
 ```yaml
 databases:
   my_database:
     plugins:
       datasette-litestream:
-        replicas:
-          - s3://...
-          - file://...
-        monitor-interval: XXX
-        checkpoint-interval: XXX
-        min-checkpoint-page-count: XXX
-        max-checkpoint-page-count: XXX
+        replica: s3://my-bucket/my_database
 ```
 
-See [Litestream Database settings](https://litestream.io/reference/config/#database-settings) for more information.
+> **Note:** A deprecated `replicas:` list is still accepted for backwards
+> compatibility, but only its first entry is used, since Litestream 0.5
+> replicates each database to a single destination. The per-database tuning
+> options from the 0.3.x plugin (`monitor-interval`, `checkpoint-interval`,
+> `min-checkpoint-page-count`, `max-checkpoint-page-count`) are not currently
+> exposed when registering databases over the control socket.
+
+## Adding and removing databases at runtime
+
+Because the Litestream daemon stays running with its control socket enabled, you
+can add or remove databases from replication without restarting it. Two routes
+are provided, both gated behind the `litestream-manage` permission:
+
+- `POST /-/litestream/register` — body `{"database": "<name>", "replica": "<url>"}`.
+  Registers an attached Datasette database with Litestream. If `replica` is
+  omitted, the URL is resolved from the database's `replica` config or the
+  top-level `all-replicate` template.
+- `POST /-/litestream/unregister` — body `{"database": "<name>", "timeout": <seconds>}`.
+  Removes a database from replication. Litestream performs a final sync to the
+  replica before dropping it.
+
+For example, with a [Datasette API token](https://docs.datasette.io/en/latest/authentication.html#api-tokens):
+
+```bash
+curl -X POST http://localhost:8001/-/litestream/register \
+  -H "Authorization: Bearer dstok_..." \
+  -H "Content-Type: application/json" \
+  -d '{"database": "my_database", "replica": "s3://my-bucket/my_database"}'
+```
+
+The current set of replicating databases, along with daemon version and uptime,
+is also shown on the admin UI described below.
+
+## Admin UI
+
+The plugin ships a small Svelte/TypeScript admin interface at **`/-/litestream`**
+(also linked from the Datasette menu). It shows the running daemon (version, PID,
+uptime), a live table of replicating databases (status, replica destination, and
+last sync time, refreshed by polling), and — for users who can manage — controls
+to sync, stop, start, remove, and register databases on the fly.
+
+Two permissions gate it:
+
+- `litestream-view-status` — view the admin page and read replication status.
+- `litestream-manage` — add/remove databases and run sync/start/stop actions.
+
+A user with only `litestream-view-status` sees the dashboard in read-only mode
+(no management controls). Grant these with Datasette's standard
+[permissions/allow blocks](https://docs.datasette.io/en/latest/authentication.html),
+e.g.:
+
+```yaml
+permissions:
+  litestream-view-status:
+    id: "*"
+  litestream-manage:
+    id: admin
+```
+
+The older server-rendered `/-/litestream-status` page (Prometheus metrics, raw
+logs, config) remains available.
 
 ## Development
 
-To set up this plugin locally, first checkout the code. Then run the tests using [uv](https://docs.astral.sh/uv/):
+The backend tests use [uv](https://docs.astral.sh/uv/) and need a Litestream
+0.5.x binary on `PATH` (or pointed to via `LITESTREAM_TEST_BINARY`):
+
 ```bash
 cd datasette-litestream
 uv run pytest
 ```
-To run Datasette with the plugin installed:
+
+The admin UI lives in `frontend/` (Svelte 5 + TypeScript + Vite). Build it into
+the Python package (writes `datasette_litestream/manifest.json` and
+`datasette_litestream/static/gen/`) before running Datasette or the backend
+tests that exercise the page:
+
 ```bash
-uv run datasette -c config.yaml
+just frontend          # npm install + vite build
+just test-frontend     # vitest unit tests
+```
+
+To try the plugin against a generated demo database (creates `demo/demo.db`,
+grants both litestream permissions, and replicates to `demo/backups/`), run:
+
+```bash
+just dev               # then open http://localhost:8002/-/litestream
+```
+
+For live UI development with hot-module reload, run the Vite dev server and a
+Datasette that loads modules from it (auto-restarts on Python/HTML changes):
+
+```bash
+just frontend-dev      # Vite dev server on :5180 (terminal 1)
+just dev-with-hmr      # Datasette with DATASETTE_LITESTREAM_VITE_PATH set (terminal 2)
 ```

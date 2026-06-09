@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Litestream{% endblock %}
+
+{% block extra_head %}
+{{ datasette_litestream_vite_entry("src/main.ts") | safe }}
+<script type="application/json" id="litestream-page-data">{{ page_data | tojson }}</script>
+{% endblock %}
+
+{% block content %}
+<div id="app-root"></div>
+{% endblock %}

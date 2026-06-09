@@ -2,6 +2,24 @@
 
 This document provides a comprehensive manual testing plan for the `datasette-litestream` plugin, including all AWS CLI commands needed to create the necessary resources.
 
+> **⚠️ Litestream 0.5 migration note**
+>
+> As of plugin version `0.3a0`, this plugin targets **Litestream 0.5.x** and
+> drives a single long-lived `litestream replicate` daemon over its control
+> socket. The configuration model changed accordingly:
+>
+> - Database-level config uses a single `replica:` URL (not a `replicas:` list).
+> - Per-database tuning keys (`monitor-interval`, `checkpoint-interval`,
+>   `min/max-checkpoint-page-count`) are not yet wired through the control socket.
+> - Replica backups are now laid out under `<replica>/ltx/` (LTX format), not
+>   `<replica>/generations/`.
+> - New scenarios to cover: registering and unregistering a database at runtime
+>   via `POST /-/litestream/register` and `POST /-/litestream/unregister`
+>   (requires the `litestream-manage` permission).
+>
+> Some scenarios below still describe the older `replicas:`/`generations/`
+> behavior and should be updated when exercised against 0.5.
+
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)

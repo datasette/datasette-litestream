@@ -10,6 +10,48 @@
 
 PID: {{process.get("pid")}}
 status: {{process.get("status")}}
+{% if process.get("socket") %}<br>control socket: <code>{{ process.get("socket") }}</code>{% endif %}
+
+{% if daemon_info %}
+<h2>Daemon</h2>
+<table>
+  <tbody>
+    <tr><td><strong>version</strong></td><td>{{ daemon_info.get("version") }}</td></tr>
+    <tr><td><strong>uptime (s)</strong></td><td>{{ daemon_info.get("uptime_seconds") }}</td></tr>
+    <tr><td><strong>databases</strong></td><td>{{ daemon_info.get("database_count") }}</td></tr>
+  </tbody>
+</table>
+{% endif %}
+
+{% if socket_error %}
+<strong>WARNING: could not read live state from the control socket: {{ socket_error }}</strong>
+{% endif %}
+
+<h2>Managed databases</h2>
+{% if managed_databases | length == 0 %}
+<p>No databases are currently registered for replication.</p>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>Datasette name</th>
+      <th>Path</th>
+      <th>Status</th>
+      <th>Last sync</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in managed_databases %}
+      <tr>
+        <td>{{ row.get("database") or "—" }}</td>
+        <td><code>{{ row.get("path") }}</code></td>
+        <td>{{ row.get("status") }}</td>
+        <td>{{ row.get("last_sync_at") or "—" }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 
 <h2><code>litestream.yaml</code> Config</h2>
 <pre>
