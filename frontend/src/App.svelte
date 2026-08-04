@@ -104,7 +104,8 @@
 
 <style>
   .ls-app {
-    max-width: 60rem;
+    max-width: 40rem;
+    margin: 0 auto;
   }
   .ls-app h1 {
     margin-bottom: 1rem;
