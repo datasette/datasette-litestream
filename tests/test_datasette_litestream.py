@@ -737,3 +737,109 @@ async def test_credential_refresh_task_is_stored(
     assert litestream_process is not None
     assert litestream_process._refresh_task is not None
     assert not litestream_process._refresh_task.done()
+
+
+# ---------------------------------------------------------------------------
+# Internal database replication and in-memory warnings
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_replicate_internal(litestream_binary, tmpdir):
+    db_path = str(tmpdir / "data.db")
+    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    datasette = Datasette(
+        [db_path],
+        internal=str(tmpdir / "internal.db"),
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"],
+                    "replicate-internal": True,
+                }
+            }
+        },
+    )
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+
+    expected = backups / "_internal"
+    for _ in range(20):
+        if replica_has_data(str(expected)):
+            break
+        time.sleep(0.25)
+    assert replica_has_data(str(expected))
+
+    startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)
+    assert processes[startup_id].warnings == []
+
+    # the status API reports the internal database under its reserved name
+    response = await datasette.client.get(
+        "/-/litestream/api/status",
+        cookies={"ds_actor": datasette.sign(actor_root, "actor")},
+    )
+    assert response.status_code == 200
+    status = response.json()
+    assert "_internal" in [db["database"] for db in status["databases"]]
+    assert status["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_replicate_internal_ephemeral_warns(litestream_binary, tmpdir):
+    db_path = str(tmpdir / "data.db")
+    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    # No internal= argument: the internal database is an ephemeral temp file
+    datasette = Datasette(
+        [db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"],
+                    "replicate-internal": True,
+                }
+            }
+        },
+    )
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+
+    startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)
+    warnings = processes[startup_id].warnings
+    assert len(warnings) == 1
+    assert "replicate-internal" in warnings[0]
+
+    response = await datasette.client.get(
+        "/-/litestream/api/status",
+        cookies={"ds_actor": datasette.sign(actor_root, "actor")},
+    )
+    assert response.json()["warnings"] == warnings
+
+
+@pytest.mark.asyncio
+async def test_in_memory_database_warns(litestream_binary, tmpdir):
+    db_path = str(tmpdir / "data.db")
+    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    datasette = Datasette(
+        [db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                }
+            }
+        },
+    )
+    datasette.add_memory_database("scratch")
+    await datasette.invoke_startup()
+
+    startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)
+    warnings = processes[startup_id].warnings
+    assert warnings == [
+        "Database 'scratch' is in-memory only, so Litestream cannot replicate it."
+    ]

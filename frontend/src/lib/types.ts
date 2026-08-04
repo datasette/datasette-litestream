@@ -31,6 +31,7 @@ export interface Status {
   socket_error?: string | null;
   databases?: ManagedDatabase[];
   available?: AvailableDatabase[];
+  warnings?: string[];
 }
 
 export interface ActionResult {

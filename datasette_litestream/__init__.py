@@ -126,6 +126,34 @@ def expand_replica_template(template: str, db_name: str, db_path: Path) -> str:
     )
 
 
+# Name used for Datasette's internal database in replica URL templates, the
+# admin UI and the manage API. Leading underscore avoids clashing with attached
+# databases (Datasette reserves underscore-prefixed names).
+INTERNAL_DB_NAME = "_internal"
+
+
+def internal_database_path(datasette):
+    """Return (path, None) for a persistent internal database, or (None, reason).
+
+    Without ``datasette --internal /path/to/internal.db`` the internal database
+    lives in memory or in a throwaway temp file, so replicating it is useless.
+    """
+    if not hasattr(datasette, "get_internal_database"):
+        return None, "This Datasette version has no internal database."
+    internal_db = datasette.get_internal_database()
+    if (
+        internal_db.path is None
+        or internal_db.is_memory
+        or getattr(internal_db, "is_temp_disk", False)
+    ):
+        return None, (
+            "The internal database is in-memory only (or an ephemeral temp file), "
+            "so Litestream cannot usefully replicate it. Start Datasette with "
+            "--internal /path/to/internal.db to persist it."
+        )
+    return Path(internal_db.path), None
+
+
 def resolve_replica_url(db_name, db_path, plugin_config_db, all_replicate):
     """Determine the single replica URL for a database, or None to skip it.
 
@@ -177,6 +205,8 @@ class LitestreamProcess:
         self.current_credentials_hash = None
         # path (str) -> replica_url for every database we have registered.
         self.registered = {}
+        # Startup warnings (e.g. in-memory databases), surfaced on the admin page.
+        self.warnings = []
         # Temp files.
         self.logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=True)
         self.configfile = None
@@ -494,17 +524,27 @@ def startup(datasette):
         litestream_process.metrics_addr = plugin_config_top.get("metrics-addr")
 
     all_replicate = plugin_config_top.get("all-replicate")
+    replicate_internal = plugin_config_top.get("replicate-internal")
+    warnings = []
 
     # Work out which databases to replicate at startup.
     initial = []  # list of (db_path_str, replica_url)
     for db_name, db in datasette.databases.items():
-        if db.path is None:
-            continue
-
-        db_path = Path(db.path)
         plugin_config_db = datasette.plugin_config(
             "datasette-litestream", db_name, fallback=False
         )
+        if db.path is None:
+            # _memory is always present and never file-backed; only warn about
+            # databases this configuration would otherwise try to replicate.
+            if db_name != "_memory" and (
+                plugin_config_db is not None or all_replicate is not None
+            ):
+                warnings.append(
+                    f"Database '{db_name}' is in-memory only, so Litestream cannot replicate it."
+                )
+            continue
+
+        db_path = Path(db.path)
 
         # skip this DB if "all-replicate" was not defined or no db-level config was given
         if plugin_config_db is None and all_replicate is None:
@@ -517,6 +557,30 @@ def startup(datasette):
             continue
 
         initial.append((str(db_path.resolve()), replica_url))
+
+    if replicate_internal:
+        internal_path, reason = internal_database_path(datasette)
+        if internal_path is None:
+            warnings.append(f"'replicate-internal' is enabled but cannot work: {reason}")
+        else:
+            if isinstance(replicate_internal, str):
+                replica_url = expand_replica_template(
+                    replicate_internal, INTERNAL_DB_NAME, internal_path
+                )
+            else:
+                replica_url = resolve_replica_url(
+                    INTERNAL_DB_NAME, internal_path, None, all_replicate
+                )
+            if replica_url is None:
+                raise StartupError(
+                    "datasette-litestream: 'replicate-internal' needs a replica URL — "
+                    "set it to a URL template or define 'all-replicate'"
+                )
+            initial.append((str(internal_path.resolve()), replica_url))
+
+    litestream_process.warnings = warnings
+    for warning in warnings:
+        print(f"datasette-litestream: WARNING: {warning}", file=sys.stderr)
 
     # don't run litestream if no top-level or db-level datasette-litestream config was given
     if not plugin_config_top and len(initial) == 0:
@@ -556,6 +620,9 @@ def register_routes():
 def _resolve_db_path(datasette, db_name):
     """Return the resolved file path for a Datasette database name, or None."""
     db = datasette.databases.get(db_name)
+    if db is None and db_name == INTERNAL_DB_NAME:
+        internal_path, _ = internal_database_path(datasette)
+        return str(internal_path.resolve()) if internal_path else None
     if db is None or db.path is None:
         return None
     return str(Path(db.path).resolve())
@@ -590,6 +657,9 @@ async def _build_status(datasette, litestream_process, can_manage):
         if db.path is None:
             continue
         name_by_path[str(Path(db.path).resolve())] = db_name
+    internal_path, _ = internal_database_path(datasette)
+    if internal_path is not None:
+        name_by_path.setdefault(str(internal_path.resolve()), INTERNAL_DB_NAME)
 
     daemon = None
     managed = []
@@ -632,6 +702,31 @@ async def _build_status(datasette, litestream_process, can_manage):
             }
         )
 
+    # A persistent internal database can be registered like any other.
+    if internal_path is not None:
+        resolved = str(internal_path.resolve())
+        if resolved not in registered_paths:
+            plugin_config_top = datasette.plugin_config("datasette-litestream") or {}
+            replicate_internal = plugin_config_top.get("replicate-internal")
+            if isinstance(replicate_internal, str):
+                suggested = expand_replica_template(
+                    replicate_internal, INTERNAL_DB_NAME, internal_path
+                )
+            else:
+                suggested = resolve_replica_url(
+                    INTERNAL_DB_NAME,
+                    internal_path,
+                    None,
+                    plugin_config_top.get("all-replicate"),
+                )
+            available.append(
+                {
+                    "database": INTERNAL_DB_NAME,
+                    "path": resolved,
+                    "suggested_replica": suggested,
+                }
+            )
+
     return {
         "running": True,
         "can_manage": can_manage,
@@ -640,6 +735,7 @@ async def _build_status(datasette, litestream_process, can_manage):
         "socket_error": socket_error,
         "databases": managed,
         "available": available,
+        "warnings": litestream_process.warnings,
     }
 
 

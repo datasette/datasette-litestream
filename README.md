@@ -72,6 +72,7 @@ Some configuration in the `metadata.yaml` will be used to auto-generate the [`li
 The following are valid keys that are allowed when specifying top-level plugin configuration:
 
 - `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details.
+- `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `all-replicate` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is in-memory (or an ephemeral temp file), and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use with caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
 - `access-key-id`: An alternate way to provide a S3 access key (though the `LITESTREAM_ACCESS_KEY_ID` environment variable is preferred).
 - `secret-access-key`: An alternate way to provide a S3 secret key (though the `LITESTREAM_SECRET_ACCESS_KEY` environment variable is preferred).

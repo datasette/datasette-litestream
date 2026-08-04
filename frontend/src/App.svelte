@@ -71,6 +71,9 @@
     {#if status.socket_error}
       <p class="ls-banner ls-warn">Control socket error: {status.socket_error}</p>
     {/if}
+    {#each status.warnings ?? [] as warning}
+      <p class="ls-banner ls-warn">⚠ {warning}</p>
+    {/each}
     {#if !canManage}
       <p class="ls-banner ls-info">
         You have read-only access. Managing databases requires the
