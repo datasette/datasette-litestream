@@ -10,6 +10,7 @@
 
 ds_port := "8002"
 vite_port := "5180"
+litestream_version := "0.5.12"
 vite_base := "http://localhost:" + vite_port + "/-/static-plugins/datasette_litestream/"
 
 # Build the Svelte/Vite admin UI into the Python package
@@ -42,21 +43,32 @@ demo-db:
   set -euo pipefail
   mkdir -p demo
   if [ ! -f demo/demo.db ]; then
-    python3 - <<'PY'
-import sqlite3
-db = sqlite3.connect("demo/demo.db")
-db.execute("create table if not exists events(id integer primary key, name text)")
-db.executemany("insert into events(name) values (?)", [(f"event {i}",) for i in range(25)])
-db.commit(); db.close()
-print("created demo/demo.db")
-PY
+    sqlite3 demo/demo.db \
+      "create table events(id integer primary key, name text);
+       with recursive n(i) as (select 0 union all select i+1 from n where i < 24)
+       insert into events(name) select 'event ' || i from n;"
+    echo "created demo/demo.db"
+  fi
+
+# Download a pinned litestream binary into .bin/ (idempotent)
+litestream-bin:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ ! -x .bin/litestream ]; then
+    mkdir -p .bin
+    os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    curl -fsSL "https://github.com/benbjohnson/litestream/releases/download/v{{litestream_version}}/litestream-{{litestream_version}}-${os}-$(uname -m).tar.gz" \
+      | tar -xz -C .bin litestream
+    echo "downloaded litestream {{litestream_version}} to .bin/litestream"
   fi
 
 # Run Datasette with the plugin against the demo database. Grants both
 # litestream permissions to everyone so the admin UI is usable, then visit
 # http://localhost:8002/-/litestream
-dev *flags: demo-db
-  DATASETTE_SECRET=abc123 uv run datasette \
+dev *flags: demo-db litestream-bin
+  DATASETTE_SECRET=abc123 \
+  DATASETTE_LITESTREAM_BINARY={{justfile_directory()}}/.bin/litestream \
+  uv run datasette \
     --root \
     demo/demo.db \
     -c demo/datasette.yml \

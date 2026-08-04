@@ -34,3 +34,4 @@ datasette_litestream/manifest.json
 # Local dev demo artifacts (`just dev`)
 demo/demo.db
 demo/backups/
+.bin/
