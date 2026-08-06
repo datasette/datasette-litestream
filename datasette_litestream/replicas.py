@@ -51,8 +51,7 @@ def resolve_replica_url(
     """Determine the single replica URL for a database, or None to skip it.
 
     litestream 0.5 replicates each database to exactly one destination, so we
-    resolve a single URL: the db-level ``replica`` (into which the deprecated
-    ``replicas`` list is already folded by DatabaseConfig), falling back to the
+    resolve a single URL: the db-level ``replica``, falling back to the
     top-level ``all-replicate`` template.
     """
     template = db_config.replica if db_config is not None else None

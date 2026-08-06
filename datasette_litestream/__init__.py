@@ -221,6 +221,13 @@ def startup(datasette):
 
         replica_url = resolve_replica_url(db_name, db_path, db_config, all_replicate)
         if replica_url is None:
+            # Only possible with a db-level block that has no 'replica' URL
+            # and no 'all-replicate' fallback.
+            warnings.append(
+                f"Database '{db_name}' has a datasette-litestream block but no "
+                "'replica' URL, and no top-level 'all-replicate' is set, so it "
+                "will not be replicated."
+            )
             continue
 
         initial.append((db_name, str(db_path.resolve()), replica_url))

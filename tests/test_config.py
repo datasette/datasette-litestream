@@ -55,12 +55,15 @@ def test_snake_case_spellings_are_accepted():
     assert config.all_replicate == "s3://bucket/$DB_NAME"
 
 
-def test_all_replicate_list_uses_first_entry():
-    config = LitestreamConfig.model_validate(
-        {"all-replicate": ["s3://bucket/a", "s3://bucket/b"]}
-    )
-    assert config.all_replicate == "s3://bucket/a"
-    assert LitestreamConfig.model_validate({"all-replicate": []}).all_replicate is None
+def test_all_replicate_list_is_rejected():
+    """Pre-0.5 versions accepted a list and used the first entry; litestream
+    0.5 replicates to a single destination, so a list is now an error."""
+    with pytest.raises(ValidationError, match="single URL template"):
+        LitestreamConfig.model_validate(
+            {"all-replicate": ["s3://bucket/a", "s3://bucket/b"]}
+        )
+    with pytest.raises(ValidationError, match="single URL template"):
+        LitestreamConfig.model_validate({"all-replicate": []})
 
 
 def test_replicate_internal_accepts_bool_or_template():
@@ -154,22 +157,18 @@ def test_no_credentials_at_all():
 # --- DatabaseConfig ---------------------------------------------------------
 
 
-def test_database_config_replicas_deprecated_folds_into_replica():
-    assert (
-        DatabaseConfig.model_validate({"replicas": ["s3://a", "s3://b"]}).replica
-        == "s3://a"
-    )
-    assert (
-        DatabaseConfig.model_validate({"replicas": [{"url": "s3://a"}]}).replica
-        == "s3://a"
-    )
-    # An explicit replica wins over the deprecated list.
-    assert (
+def test_database_config_replicas_list_is_rejected():
+    """The litestream <= 0.3 multi-replica list is gone; the error carries a
+    migration hint instead of a bare extra-keys complaint."""
+    with pytest.raises(ValidationError, match="no longer supported"):
+        DatabaseConfig.model_validate({"replicas": ["s3://a", "s3://b"]})
+    with pytest.raises(ValidationError, match="use 'replica'"):
+        DatabaseConfig.model_validate({"replicas": [{"url": "s3://a"}]})
+    # Even alongside an explicit 'replica' — the list would be silently dead.
+    with pytest.raises(ValidationError, match="no longer supported"):
         DatabaseConfig.model_validate(
             {"replica": "s3://explicit", "replicas": ["s3://a"]}
-        ).replica
-        == "s3://explicit"
-    )
+        )
 
 
 def test_unknown_database_key_is_forbidden():

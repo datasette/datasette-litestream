@@ -133,16 +133,19 @@ class DatabaseConfig(BaseModel):
     )
 
     replica: str | None = None
-    # Deprecated litestream <= 0.3 multi-replica list (strings or {url: ...}
-    # dicts); litestream 0.5 supports one destination, so only the first entry
-    # is honored. Folded into ``replica`` below.
+    # The litestream <= 0.3 multi-replica list. litestream 0.5 replicates to a
+    # single destination, so this is rejected with a migration hint (rather
+    # than left to extra="forbid") to make clear entries would be dropped.
     replicas: list[str | dict] | None = None
 
     @model_validator(mode="after")
-    def _fold_deprecated_replicas(self):
-        if self.replica is None and self.replicas:
-            first = self.replicas[0]
-            self.replica = first.get("url") if isinstance(first, dict) else first
+    def _reject_deprecated_replicas(self):
+        if self.replicas is not None:
+            raise ValueError(
+                "'replicas' is no longer supported — litestream 0.5 replicates "
+                "each database to a single destination; use 'replica' with one "
+                "URL instead"
+            )
         return self
 
 
@@ -153,8 +156,7 @@ class LitestreamConfig(BaseModel):
         alias_generator=_kebab, populate_by_name=True, extra="forbid"
     )
 
-    # Template replica URL applied to every attached database. A list is
-    # accepted for backwards compatibility but only the first entry is used.
+    # Template replica URL applied to every attached database.
     all_replicate: str | None = None
     # Also replicate Datasette's internal database: True derives the replica
     # URL from all-replicate, a string is used as the URL template directly.
@@ -172,9 +174,16 @@ class LitestreamConfig(BaseModel):
 
     @field_validator("all_replicate", mode="before")
     @classmethod
-    def _first_of_list(cls, value):
+    def _reject_list(cls, value):
+        # Pre-0.5 versions accepted a list here and used the first entry;
+        # reject it with a migration hint instead of a bare type error.
         if isinstance(value, (list, tuple)):
-            return value[0] if value else None
+            # Not a TypeError: pydantic only turns ValueError into a
+            # ValidationError; a TypeError would escape validation.
+            raise ValueError(  # noqa: TRY004
+                "'all-replicate' must be a single URL template, not a list — "
+                "litestream 0.5 replicates each database to a single destination"
+            )
         return value
 
 

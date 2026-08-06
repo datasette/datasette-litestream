@@ -76,7 +76,7 @@ Plugin configuration lives in your `datasette.yml` (passed with `-c`, or via `-s
 
 The following are valid keys that are allowed when specifying top-level plugin configuration:
 
-- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details. (A list is accepted for backwards compatibility, but only the first entry is used.)
+- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details.
 - `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `all-replicate` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given address. This endpoint is **unauthenticated** and also serves Go's `/debug/pprof` handlers, and an address without a host part (like `:9090`) listens on **all interfaces** — bind it to loopback (`127.0.0.1:9090`) or firewall it in production. The plugin prints a startup warning (also shown on the admin page) for all-interfaces binds.
 - `restrict-runtime-replicas`: When `true`, the runtime register API only accepts the replica URL derived from configuration (a database-level `replica` or the `all-replicate` template) — caller-supplied URLs that differ are rejected. Defaults to `false`. See the permissions note under [Admin UI](#admin-ui).
@@ -200,9 +200,9 @@ databases:
         replica: s3://my-bucket/my_database
 ```
 
-> **Note:** A deprecated `replicas:` list is still accepted for backwards
-> compatibility, but only its first entry is used, since Litestream 0.5
-> replicates each database to a single destination. The per-database tuning
+> **Note:** The 0.3.x-era `replicas:` list is no longer accepted, since
+> Litestream 0.5 replicates each database to a single destination — startup
+> fails with a migration hint pointing at `replica`. The per-database tuning
 > options from the 0.3.x plugin (`monitor-interval`, `checkpoint-interval`,
 > `min-checkpoint-page-count`, `max-checkpoint-page-count`) are not currently
 > exposed when registering databases over the control socket.

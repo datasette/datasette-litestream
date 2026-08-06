@@ -166,20 +166,6 @@ def test_resolve_replica_url_db_level_single(tmpdir):
     assert url == "s3://bucket/mydb"
 
 
-def test_resolve_replica_url_db_level_replicas_list(tmpdir):
-    """The deprecated 'replicas' list uses the first entry."""
-    db_path = Path(str(tmpdir / "mydb.db"))
-    url = resolve_replica_url(
-        "mydb",
-        db_path,
-        DatabaseConfig.model_validate(
-            {"replicas": [{"url": "s3://bucket/a"}, {"url": "s3://bucket/b"}]}
-        ),
-        None,
-    )
-    assert url == "s3://bucket/a"
-
-
 def test_resolve_replica_url_all_replicate_template(tmpdir):
     db_path = Path(str(tmpdir / "mydb.db"))
     url = resolve_replica_url("mydb", db_path, None, "file:///backups/$DB_NAME")
@@ -288,7 +274,7 @@ async def test_all_replicate_template(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -358,7 +344,7 @@ async def test_runtime_register_and_unregister(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -423,7 +409,7 @@ async def test_register_route_requires_permission(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -447,7 +433,7 @@ async def test_register_unknown_database(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1069,7 +1055,7 @@ async def test_register_during_rotation_integration(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1144,7 +1130,7 @@ async def test_unregister_detached_database_integration(litestream_binary, tmpdi
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1281,7 +1267,7 @@ async def test_dead_daemon_returns_json_5xx(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1360,7 +1346,7 @@ async def test_restrict_runtime_replicas(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"],
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME",
                     "restrict-runtime-replicas": True,
                 }
             }
@@ -1412,7 +1398,7 @@ async def test_all_replicate_skips_immutable_db(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1794,7 +1780,7 @@ async def test_replicate_internal(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"],
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME",
                     "replicate-internal": True,
                 }
             }
@@ -1836,7 +1822,7 @@ async def test_replicate_internal_ephemeral_warns(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"],
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME",
                     "replicate-internal": True,
                 }
             }
@@ -1868,7 +1854,7 @@ async def test_in_memory_database_warns(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1881,3 +1867,68 @@ async def test_in_memory_database_warns(litestream_binary, tmpdir):
     assert warnings == [
         "Database 'scratch' is in-memory only, so Litestream cannot replicate it."
     ]
+
+
+# ---------------------------------------------------------------------------
+# Config that would silently drop replica destinations fails startup
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_deprecated_replicas_list_fails_startup(students_db_path):
+    """litestream 0.5 replicates to one destination; a 'replicas' list would
+    silently lose entries, so it is rejected outright."""
+    backup_dir = str(Path(students_db_path).parents[0] / "students-backup")
+    datasette = Datasette(
+        [students_db_path],
+        config={
+            "databases": {
+                "students": {
+                    "plugins": {
+                        "datasette-litestream": {"replicas": [file_replica(backup_dir)]}
+                    }
+                }
+            }
+        },
+    )
+    with pytest.raises(StartupError, match="'replicas' is no longer supported"):
+        await datasette.invoke_startup()
+
+
+@pytest.mark.asyncio
+async def test_all_replicate_list_fails_startup(tmpdir):
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    datasette = Datasette(
+        [db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": [
+                        "file://" + str(tmpdir / "backups") + "/$DB_NAME",
+                        "s3://second-bucket/$DB_NAME",
+                    ]
+                }
+            }
+        },
+    )
+    with pytest.raises(StartupError, match="single URL template"):
+        await datasette.invoke_startup()
+
+
+@pytest.mark.asyncio
+async def test_empty_db_block_without_all_replicate_warns(students_db_path, capsys):
+    """An empty db-level block opts the database in, but with no 'replica' URL
+    and no 'all-replicate' there is nothing to replicate to — say so instead
+    of silently skipping the database."""
+    datasette = Datasette(
+        [students_db_path],
+        config={"databases": {"students": {"plugins": {"datasette-litestream": {}}}}},
+    )
+    await datasette.invoke_startup()
+    # No top-level config and nothing to replicate: no daemon is started, so
+    # the warning only lands on stderr.
+    assert getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, None) is None
+    stderr = capsys.readouterr().err
+    assert "Database 'students'" in stderr
+    assert "will not be replicated" in stderr
