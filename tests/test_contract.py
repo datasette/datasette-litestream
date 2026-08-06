@@ -20,7 +20,6 @@ EXPECTED_ROUTES = {
     r"^/-/litestream/api/stop$",
     r"^/-/litestream/register$",
     r"^/-/litestream/unregister$",
-    r"^/-/litestream-status$",
 }
 
 
@@ -64,7 +63,6 @@ def test_openapi_document_covers_all_routes():
         "/-/litestream/api/stop",
         "/-/litestream/register",
         "/-/litestream/unregister",
-        "/-/litestream-status",
     }
     status_response = doc["paths"]["/-/litestream/api/status"]["get"]["responses"][
         "200"

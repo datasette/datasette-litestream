@@ -72,7 +72,7 @@ The following are valid keys that are allowed when specifying top-level plugin c
 
 - `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details. (A list is accepted for backwards compatibility, but only the first entry is used.)
 - `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `all-replicate` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
-- `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use with caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
+- `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use with caution on public Datasette instances!
 - `logging`: Controls the Litestream daemon's logging. Litestream's log output is always captured to a log file (shown on the admin page) instead of being interleaved with Datasette's console output. Sub-keys:
   - `logging.level`: One of `debug`, `info`, `warn`, `error`. Defaults to `info`.
   - `logging.type`: Log format, `text` or `json`. Defaults to `text`.
@@ -171,8 +171,7 @@ The `session-token` field is optional.
 4. If loading credentials fails during a refresh check, the Datasette process will exit with an error
 
 Credentials are passed to Litestream through the daemon's environment (as
-`AWS_*` variables) rather than written into the generated config file, so they
-never appear on the status page.
+`AWS_*` variables) rather than written into the generated config file.
 
 ### Database-level
 
@@ -257,9 +256,6 @@ permissions:
   litestream-manage:
     id: admin
 ```
-
-The older server-rendered `/-/litestream-status` page (Prometheus metrics, raw
-logs, config) remains available.
 
 ## Development
 

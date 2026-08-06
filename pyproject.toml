@@ -10,7 +10,6 @@ dependencies = [
     "datasette-plugin-router>=0.0.1a6",
     "datasette-vite>=0.0.1a4",
     "httpx",
-    "prometheus-client",
 ]
 requires-python = ">=3.10"
 

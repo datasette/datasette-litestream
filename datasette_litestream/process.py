@@ -77,20 +77,6 @@ def credentials_hash(creds: Credentials | None) -> str:
     )
 
 
-REDACTED_KEYS = {"secret-access-key", "session-token"}
-
-
-def redact_credentials(config: dict) -> dict:
-    """Return a copy of config with sensitive credentials redacted."""
-    redacted = {}
-    for key, value in config.items():
-        if key in REDACTED_KEYS:
-            redacted[key] = "***REDACTED***"
-        else:
-            redacted[key] = value
-    return redacted
-
-
 def credentials_env(creds: Credentials | None) -> dict:
     """Translate credentials into AWS_* environment variables.
 
@@ -150,7 +136,7 @@ class LitestreamProcess:
         self.socket_dir = None
         self.socket_path = None
         self.client = None
-        # The daemon config (dict) we wrote out, kept for the status page.
+        # The daemon config (dict) we wrote out.
         self.daemon_config = None
         # Metrics/pprof bind address, if configured.
         self.metrics_addr = None
@@ -350,7 +336,7 @@ class LitestreamProcess:
 processes = {}
 
 # The uuid generated at startup is stored on the datasette object, stored in this key attr.
-# Meant so we can retrieve it in the separate litestream_status route
+# Meant so we can retrieve it in the route handlers
 DATASETTE_LITESTREAM_PROCESS_KEY = "__DATASETTE_LITESTREAM_PROCESS_KEY__"
 
 

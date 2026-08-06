@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 import sqlite_utils
 from conftest import table
@@ -26,7 +27,6 @@ from datasette_litestream.process import (
     load_credentials_from_command,
     load_credentials_from_file,
     processes,
-    redact_credentials,
 )
 from datasette_litestream.replicas import (
     expand_replica_template,
@@ -92,15 +92,15 @@ async def test_no_litestream_config():
     datasette = Datasette(memory=True)
     datasette.root_enabled = True
 
-    response = await datasette.client.get("/-/litestream-status")
+    response = await datasette.client.get("/-/litestream/api/status")
     assert response.status_code == 403
 
     response = await datasette.client.get(
-        "/-/litestream-status",
+        "/-/litestream/api/status",
         cookies={"ds_actor": datasette.sign(actor_root, "actor")},
     )
     assert response.status_code == 200
-    assert response.text == "<h1>Litestream not running</h1>"
+    assert response.json() == {"running": False}
 
 
 # ---------------------------------------------------------------------------
@@ -244,17 +244,18 @@ async def test_basic_db_level(litestream_binary, students_db_path):
     )
     datasette.root_enabled = True
 
-    response = await datasette.client.get("/-/litestream-status")
+    response = await datasette.client.get("/-/litestream/api/status")
     assert response.status_code == 403
 
     response = await datasette.client.get(
-        "/-/litestream-status",
+        "/-/litestream/api/status",
         cookies={"ds_actor": datasette.sign(actor_root, "actor")},
     )
     assert response.status_code == 200
-    assert "<title>Litestream status</title>" in response.text
-    # the status page lists the managed database
-    assert "students" in response.text
+    status = response.json()
+    assert status["running"] is True
+    # the status payload lists the managed database
+    assert any(db["database"] == "students" for db in status["databases"])
 
     for _ in range(20):
         if replica_has_data(backup_dir):
@@ -373,12 +374,12 @@ async def test_runtime_register_and_unregister(litestream_binary, tmpdir):
     assert body["status"] in ("registered", "already_registered")
     assert any("extra.db" in p for p in proc.registered)
 
-    # The daemon's /list now reports both databases on the status page.
+    # The daemon's /list now reports both databases in the status payload.
     listed = await datasette.client.get(
-        "/-/litestream-status",
+        "/-/litestream/api/status",
         cookies={"ds_actor": datasette.sign(actor_root, "actor")},
     )
-    assert "extra.db" in listed.text
+    assert any("extra.db" in (db["path"] or "") for db in listed.json()["databases"])
 
     extra_backup = backups / "extra"
     for _ in range(20):
@@ -471,12 +472,24 @@ async def test_metrics(litestream_binary, students_db_path):
     datasette.root_enabled = True
 
     response = await datasette.client.get(
-        "/-/litestream-status",
+        "/-/litestream/api/status",
         cookies={"ds_actor": datasette.sign(actor_root, "actor")},
     )
     assert response.status_code == 200
-    assert "<title>Litestream status</title>" in response.text
-    assert "<h2>Metrics</h2>" in response.text
+    assert response.json()["metrics_enabled"] is True
+
+    # litestream itself serves the Prometheus endpoint on metrics-addr.
+    async with httpx.AsyncClient() as client:
+        for _ in range(20):
+            try:
+                metrics = await client.get("http://localhost:9998/metrics")
+                break
+            except httpx.TransportError:
+                await asyncio.sleep(0.25)
+        else:
+            pytest.fail("litestream metrics endpoint never came up")
+    assert metrics.status_code == 200
+    assert "litestream" in metrics.text
 
 
 # ---------------------------------------------------------------------------
@@ -725,10 +738,11 @@ async def test_credentials_file_basic(litestream_binary, students_db_path, tmpdi
     )
     datasette.root_enabled = True
     response = await datasette.client.get(
-        "/-/litestream-status",
+        "/-/litestream/api/status",
         cookies={"ds_actor": datasette.sign(actor_root, "actor")},
     )
     assert response.status_code == 200
+    assert response.json()["running"] is True
     for _ in range(20):
         if replica_has_data(backup_dir):
             break
@@ -736,44 +750,12 @@ async def test_credentials_file_basic(litestream_binary, students_db_path, tmpdi
     assert replica_has_data(backup_dir)
 
 
-# ---------------------------------------------------------------------------
-# Credential redaction
-# ---------------------------------------------------------------------------
-
-
-def test_redact_credentials_basic():
-    config = {
-        "access-key-id": "AKIATEST",
-        "secret-access-key": "supersecret123",
-        "dbs": [],
-    }
-    result = redact_credentials(config)
-    assert result["access-key-id"] == "AKIATEST"
-    assert result["secret-access-key"] == "***REDACTED***"
-
-
-def test_redact_credentials_with_session_token():
-    config = {
-        "access-key-id": "AKIATEST",
-        "secret-access-key": "supersecret123",
-        "session-token": "sessiontoken456",
-    }
-    result = redact_credentials(config)
-    assert result["secret-access-key"] == "***REDACTED***"
-    assert result["session-token"] == "***REDACTED***"
-
-
-def test_redact_credentials_without_secrets():
-    config = {"dbs": [{"path": "/data/db.sqlite"}], "addr": ":9999"}
-    assert redact_credentials(config) == config
-
-
 @pytest.mark.asyncio
-async def test_credentials_not_leaked_in_status_page(
+async def test_credentials_not_leaked_in_status(
     litestream_binary, students_db_path, tmpdir
 ):
     """Credentials reach litestream via the environment, never the config file,
-    so the status page must not contain the secret values."""
+    so the status payload must not contain the secret values."""
     creds_file = tmpdir / "creds.json"
     creds_file.write_text(
         json.dumps(
@@ -798,7 +780,7 @@ async def test_credentials_not_leaked_in_status_page(
     )
     datasette.root_enabled = True
     response = await datasette.client.get(
-        "/-/litestream-status",
+        "/-/litestream/api/status",
         cookies={"ds_actor": datasette.sign(actor_root, "actor")},
     )
     assert response.status_code == 200

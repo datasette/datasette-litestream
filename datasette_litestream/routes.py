@@ -5,14 +5,11 @@ request/response shapes live in ``contract.py``.
 """
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Annotated
 
-import httpx
 from datasette.utils.asgi import Response
 from datasette_plugin_router import Body
-from prometheus_client.parser import text_string_to_metric_families
 
 from ._client import LitestreamControlError
 from .config import get_config, get_database_config
@@ -23,7 +20,7 @@ from .contract import (
     Status,
     UnregisterBody,
 )
-from .process import get_process, redact_credentials
+from .process import get_process
 from .replicas import (
     INTERNAL_DB_NAME,
     expand_replica_template,
@@ -349,113 +346,4 @@ async def litestream_unregister(
             "status": result.get("status"),
             "txid": result.get("txid"),
         }
-    )
-
-
-@router.GET(r"^/-/litestream-status$")
-@permission_required(VIEW_STATUS_ACTION)
-async def litestream_status(datasette, request):
-    """GET /-/litestream-status — the legacy server-rendered status page."""
-    litestream_process = get_process(datasette)
-
-    if litestream_process is None:
-        return Response.html("<h1>Litestream not running</h1>")
-
-    # Map litestream's absolute database paths back to Datasette names.
-    db_name_lookup = {}
-    for db_name, db in datasette.databases.items():
-        if db.path is None:
-            continue
-        db_name_lookup[str(Path(db.path).resolve())] = db_name
-
-    # Live daemon state from the control socket (best effort).
-    daemon_info = None
-    managed = []
-    socket_error = None
-    if litestream_process.client is not None:
-        try:
-            daemon_info = await asyncio.to_thread(litestream_process.client.info)
-            databases = await asyncio.to_thread(
-                litestream_process.client.list_databases
-            )
-            for entry in databases:
-                managed.append(
-                    {
-                        "database": db_name_lookup.get(entry.get("path")),
-                        "path": entry.get("path"),
-                        "status": entry.get("status"),
-                        "last_sync_at": entry.get("last_sync_at"),
-                    }
-                )
-        except Exception as e:  # noqa: BLE001 -- best effort, surfaced in the UI
-            socket_error = str(e)
-
-    replica_operations = {"bytes": [], "total": []}
-    metrics_by_db = {}
-    go_stats = {}
-
-    metrics_enabled = litestream_process.metrics_addr is not None
-
-    if metrics_enabled:
-        addr = litestream_process.metrics_addr
-        # TODO detect when non-localhost addresses are used
-        try:
-            async with httpx.AsyncClient() as client:
-                metrics_page = (
-                    await client.get(f"http://localhost{addr}/metrics")
-                ).text
-        except Exception:  # noqa: BLE001 -- metrics are optional
-            metrics_page = ""
-
-        for family in text_string_to_metric_families(metrics_page):
-            for sample in family.samples:
-                # litestream 0.5 renamed the bytes counter (dropped the _total suffix).
-                if sample.name in (
-                    "litestream_replica_operation_bytes",
-                    "litestream_replica_operation_bytes_total",
-                ):
-                    replica_operations["bytes"].append(
-                        {**sample.labels, "value": sample.value}
-                    )
-                elif sample.name == "litestream_replica_operation_total":
-                    replica_operations["total"].append(
-                        {**sample.labels, "value": sample.value}
-                    )
-                elif sample.name.startswith("litestream_"):
-                    db_path = sample.labels.get("db")
-                    if db_path is None:
-                        continue
-                    db = db_name_lookup.get(db_path)
-                    if db is None:
-                        # Path from metrics may not match resolved path
-                        continue
-                    metrics_by_db.setdefault(db, {})[sample.name] = sample.value
-                elif sample.name in ["go_goroutines", "go_threads"]:
-                    go_stats[sample.name] = sample.value
-
-    return Response.html(
-        await datasette.render_template(
-            "litestream.html",
-            context={
-                "process": {
-                    "pid": litestream_process.process.pid,
-                    "status": (
-                        "alive" if litestream_process.process.poll() is None else "died"
-                    ),
-                    "socket": litestream_process.socket_path,
-                },
-                "daemon_info": daemon_info,
-                "managed_databases": managed,
-                "socket_error": socket_error,
-                "logs": Path(litestream_process.logfile.name).read_text(),
-                "metrics_enabled": metrics_enabled,
-                "litestream_config": json.dumps(
-                    redact_credentials(litestream_process.daemon_config or {}), indent=2
-                ),
-                "replica_operations": replica_operations,
-                "metrics_by_db": metrics_by_db,
-                "go_stats": go_stats,
-            },
-            request=request,
-        )
     )
