@@ -79,6 +79,7 @@ The following are valid keys that are allowed when specifying top-level plugin c
 - `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details. (A list is accepted for backwards compatibility, but only the first entry is used.)
 - `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `all-replicate` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use with caution on public Datasette instances!
+- `restrict-runtime-replicas`: When `true`, the runtime register API only accepts the replica URL derived from configuration (a database-level `replica` or the `all-replicate` template) — caller-supplied URLs that differ are rejected. Defaults to `false`. See the permissions note under [Admin UI](#admin-ui).
 - `logging`: Controls the Litestream daemon's logging. Litestream's log output is always captured to a log file (shown on the admin page) instead of being interleaved with Datasette's console output. Sub-keys:
   - `logging.level`: One of `debug`, `info`, `warn`, `error`. Defaults to `info`.
   - `logging.type`: Log format, `text` or `json`. Defaults to `text`.
@@ -253,6 +254,16 @@ Two permissions gate it:
 
 - `litestream-view-status` — view the admin page and read replication status.
 - `litestream-manage` — add/remove databases and run sync/start/stop actions.
+
+Grant `litestream-manage` carefully: registering a database with a replica URL
+of the caller's choosing amounts to **read access to every attached database**
+(replicate it to a destination the caller controls, e.g. their own S3 bucket)
+and, via `file://` replicas, **write access to any server path the Datasette
+process can write to** (litestream creates its replica directory tree under
+the given path). Replica URLs supplied to the register API are validated
+against the schemes litestream supports, and setting the top-level
+`restrict-runtime-replicas: true` option limits runtime registration to
+operator-configured destinations only.
 
 A user with only `litestream-view-status` sees the dashboard in read-only mode
 (no management controls). Grant these with Datasette's standard

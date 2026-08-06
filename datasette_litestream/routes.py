@@ -309,8 +309,18 @@ async def litestream_register(
         )
 
     replica_url = body.replica
+    suggested = _suggested_replica(datasette, db_name, db_path)
     if not replica_url:
-        replica_url = _suggested_replica(datasette, db_name, db_path)
+        replica_url = suggested
+    elif get_config(datasette).restrict_runtime_replicas and replica_url != suggested:
+        return Response.json(
+            {
+                "ok": False,
+                "error": "'restrict-runtime-replicas' is enabled: replica URLs "
+                "are limited to the configured destination for this database",
+            },
+            status=400,
+        )
     if not replica_url:
         return Response.json(
             {

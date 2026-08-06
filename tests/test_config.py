@@ -36,6 +36,12 @@ def test_top_level_kebab_aliases():
     assert config.access_key_id == "AKIA"
 
 
+def test_restrict_runtime_replicas_parses():
+    assert LitestreamConfig.model_validate({}).restrict_runtime_replicas is False
+    config = LitestreamConfig.model_validate({"restrict-runtime-replicas": True})
+    assert config.restrict_runtime_replicas is True
+
+
 def test_unknown_top_level_key_is_forbidden():
     with pytest.raises(ValidationError, match="not-a-real-key"):
         LitestreamConfig.model_validate({"not-a-real-key": 1})

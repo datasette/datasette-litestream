@@ -8,7 +8,21 @@ frontend TypeScript types (frontend/api.d.ts) are generated from.
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Replica URL schemes supported by litestream 0.5 (its registered replica
+# client factories); anything else is rejected at the API edge.
+ALLOWED_REPLICA_SCHEMES = {
+    "abs",
+    "file",
+    "gs",
+    "nats",
+    "oss",
+    "s3",
+    "sftp",
+    "webdav",
+    "webdavs",
+}
 
 # --- Request bodies ---------------------------------------------------------
 
@@ -25,6 +39,27 @@ class RegisterBody(BaseModel):
     database: str
     # Optional replica URL; falls back to db-level / all-replicate config.
     replica: str | None = None
+
+    @field_validator("replica")
+    @classmethod
+    def _replica_scheme_allowed(cls, value):
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            # Same meaning as omitting the field: use the configured replica.
+            return None
+        scheme, sep, _ = value.partition("://")
+        if not sep or not scheme:
+            raise ValueError(
+                "replica URL must include an explicit scheme, e.g. 's3://' or 'file://'"
+            )
+        if scheme.lower() not in ALLOWED_REPLICA_SCHEMES:
+            raise ValueError(
+                f"unsupported replica URL scheme '{scheme}'; allowed schemes: "
+                + ", ".join(sorted(ALLOWED_REPLICA_SCHEMES))
+            )
+        return value
 
 
 class UnregisterBody(BaseModel):

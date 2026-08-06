@@ -1295,6 +1295,98 @@ async def test_dead_daemon_returns_json_5xx(litestream_binary, tmpdir):
 
 
 # ---------------------------------------------------------------------------
+# Replica URL validation on the register API
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_disallowed_replica_urls(tmpdir):
+    datasette, proc = await _datasette_with_fake_process(
+        tmpdir, cast(LitestreamClient, FakeClient())
+    )
+    headers = await root_token(datasette)
+    for bad in (
+        "https://example.com/x",
+        "javascript:alert(1)",
+        "../../etc",
+        "ftp://host/x",
+        "no-scheme-at-all",
+    ):
+        response = await datasette.client.post(
+            "/-/litestream/register",
+            json={"database": "data", "replica": bad},
+            headers=headers,
+        )
+        assert response.status_code == 400, (bad, response.text)
+        assert "error" in response.json()
+    assert proc.registered == {}
+
+
+@pytest.mark.asyncio
+async def test_register_accepts_allowed_replica_url(tmpdir):
+    datasette, proc = await _datasette_with_fake_process(
+        tmpdir, cast(LitestreamClient, FakeClient())
+    )
+    headers = await root_token(datasette)
+    replica = "file://" + str(tmpdir / "replica")
+    response = await datasette.client.post(
+        "/-/litestream/register",
+        json={"database": "data", "replica": replica},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert list(proc.registered.values()) == [replica]
+
+
+@pytest.mark.asyncio
+async def test_restrict_runtime_replicas(litestream_binary, tmpdir):
+    """With restrict-runtime-replicas on, runtime registration may only
+    target the config-derived destination."""
+    data_path = str(tmpdir / "data.db")
+    extra_path = str(tmpdir / "extra.db")
+    table(data_path, "t").insert({"v": 1})
+    table(extra_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    datasette = Datasette(
+        [data_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"],
+                    "restrict-runtime-replicas": True,
+                }
+            }
+        },
+    )
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+    headers = await root_token(datasette)
+    proc = processes[getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)]
+
+    datasette.add_database(
+        Database(datasette, path=extra_path, is_mutable=True), name="extra"
+    )
+
+    # A caller-chosen destination is rejected...
+    response = await datasette.client.post(
+        "/-/litestream/register",
+        json={"database": "extra", "replica": "file://" + str(tmpdir / "exfil")},
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+    assert "restrict-runtime-replicas" in response.json()["error"]
+    assert not any("extra.db" in p for p in proc.registered)
+
+    # ...but the configured template destination still works.
+    response = await datasette.client.post(
+        "/-/litestream/register", json={"database": "extra"}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert any("extra.db" in p for p in proc.registered)
+
+
+# ---------------------------------------------------------------------------
 # Immutable databases are never replicated
 # ---------------------------------------------------------------------------
 

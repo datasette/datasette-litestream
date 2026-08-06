@@ -102,6 +102,10 @@ class LitestreamConfig(BaseModel):
     replicate_internal: bool | str = False
     # litestream metrics/pprof bind address (e.g. ":9090").
     metrics_addr: str | None = None
+    # When true, the runtime register API only accepts the replica URL derived
+    # from configuration (db-level 'replica' or the 'all-replicate' template);
+    # caller-supplied URLs that differ are rejected with a 400.
+    restrict_runtime_replicas: bool = False
     # litestream daemon logging: level, format and destination file.
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
