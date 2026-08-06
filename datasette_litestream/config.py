@@ -136,9 +136,7 @@ def get_config(datasette) -> LitestreamConfig:
     cached = getattr(datasette, _CONFIG_ATTR, None)
     if cached is not None:
         return cached
-    config = LitestreamConfig.model_validate(
-        datasette.plugin_config(PLUGIN_NAME) or {}
-    )
+    config = LitestreamConfig.model_validate(datasette.plugin_config(PLUGIN_NAME) or {})
     setattr(datasette, _CONFIG_ATTR, config)
     return config
 

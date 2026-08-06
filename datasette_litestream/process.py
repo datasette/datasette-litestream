@@ -39,7 +39,9 @@ def load_credentials_from_file(path: str) -> Credentials:
 def load_credentials_from_command(command: str) -> Credentials:
     """Execute a command and parse its JSON output for credentials."""
     args = shlex.split(command)
-    result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        args, capture_output=True, text=True, timeout=30, check=False
+    )
     if result.returncode != 0:
         raise StartupError(
             f"Credentials command failed with return code {result.returncode}: {result.stderr}"
@@ -127,7 +129,7 @@ def resolve_litestream_path():
     executable_path = shutil.which("litestream")
 
     if executable_path is None:
-        raise Exception("litestream not found.")
+        raise RuntimeError("litestream not found.")
 
     return str(executable_path)
 
@@ -159,8 +161,9 @@ class LitestreamProcess:
         self.registered = {}
         # Startup warnings (e.g. in-memory databases), surfaced on the admin page.
         self.warnings = []
-        # Temp files.
-        self.logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=True)
+        # Temp files. The logfile handle stays open for the daemon's lifetime:
+        # it is passed to Popen as stderr.
+        self.logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=True)  # noqa: SIM115
         self.configfile = None
         # atexit handler (stored so we can unregister it) and refresh task.
         self._atexit_handler = None
@@ -185,10 +188,10 @@ class LitestreamProcess:
         if self.metrics_addr:
             self.daemon_config["addr"] = self.metrics_addr
 
-        self.configfile = tempfile.NamedTemporaryFile(suffix=".yml", delete=False)
-        with self.configfile as f:
+        with tempfile.NamedTemporaryFile(suffix=".yml", delete=False) as f:
             f.write(bytes(json.dumps(self.daemon_config), "utf-8"))
             config_path = Path(f.name)
+        self.configfile = f
 
         env = os.environ.copy()
         env.update(credentials_env(self.credentials))
@@ -203,8 +206,8 @@ class LitestreamProcess:
         time.sleep(0.5)
         status = self.process.poll()
         if status is not None:
-            logs = open(self.logfile.name, "r").read()
-            raise Exception(
+            logs = Path(self.logfile.name).read_text()
+            raise RuntimeError(
                 f"datasette-litestream litestream process failed with return code {status}. Logs:"
                 + logs
             )
@@ -234,13 +237,13 @@ class LitestreamProcess:
             if Path(self.socket_path).exists():
                 return
             if self.process.poll() is not None:
-                logs = open(self.logfile.name, "r").read()
-                raise Exception(
+                logs = Path(self.logfile.name).read_text()
+                raise RuntimeError(
                     "datasette-litestream litestream process exited before opening "
                     "its control socket. Logs:" + logs
                 )
             time.sleep(0.05)
-        raise Exception(
+        raise RuntimeError(
             f"datasette-litestream: control socket {self.socket_path} did not appear "
             f"within {timeout}s"
         )

@@ -17,6 +17,7 @@ from pathlib import Path
 from datasette import hookimpl
 from datasette.permissions import Action
 from datasette.utils import StartupError
+from datasette_vite import vite_entry
 from pydantic import ValidationError
 
 from . import routes  # noqa: F401  (imports register the route handlers)
@@ -35,7 +36,6 @@ from .replicas import (
     resolve_replica_url,
 )
 from .router import MANAGE_ACTION, VIEW_STATUS_ACTION, router
-from datasette_vite import vite_entry
 
 
 @hookimpl
@@ -102,14 +102,14 @@ async def credential_refresh_loop(
             new_hash = credentials_hash(new_creds)
             if new_hash != litestream_process.current_credentials_hash:
                 print(
-                    f"datasette-litestream: credentials changed, restarting litestream",
+                    "datasette-litestream: credentials changed, restarting litestream",
                     file=sys.stderr,
                 )
                 await asyncio.to_thread(
                     litestream_process.restart_with_new_credentials, new_creds
                 )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- any failure here is fatal
             print(
                 f"datasette-litestream: fatal error refreshing credentials: {e}",
                 file=sys.stderr,
@@ -183,7 +183,9 @@ def startup(datasette):
     if config.replicate_internal:
         internal_path, reason = internal_database_path(datasette)
         if internal_path is None:
-            warnings.append(f"'replicate-internal' is enabled but cannot work: {reason}")
+            warnings.append(
+                f"'replicate-internal' is enabled but cannot work: {reason}"
+            )
         else:
             if isinstance(config.replicate_internal, str):
                 replica_url = expand_replica_template(

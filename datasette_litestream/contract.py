@@ -6,10 +6,9 @@ models feed the OpenAPI document (``router.openapi_document_json()``) that the
 frontend TypeScript types (frontend/api.d.ts) are generated from.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel
-
 
 # --- Request bodies ---------------------------------------------------------
 
@@ -25,7 +24,7 @@ class RegisterBody(BaseModel):
 
     database: str
     # Optional replica URL; falls back to db-level / all-replicate config.
-    replica: Optional[str] = None
+    replica: str | None = None
 
 
 class UnregisterBody(BaseModel):
@@ -33,7 +32,7 @@ class UnregisterBody(BaseModel):
 
     database: str
     # Seconds to wait for the daemon's final sync before giving up.
-    timeout: Optional[float] = None
+    timeout: float | None = None
 
 
 # --- Response payloads ------------------------------------------------------
@@ -53,11 +52,11 @@ class ManagedDatabase(BaseModel):
     """A database currently registered with the litestream daemon."""
 
     # Datasette database name, if the path maps back to an attached database.
-    database: Optional[str] = None
+    database: str | None = None
     path: str
-    status: Optional[str] = None
-    last_sync_at: Optional[str] = None
-    replica: Optional[str] = None
+    status: str | None = None
+    last_sync_at: str | None = None
+    replica: str | None = None
 
 
 class AvailableDatabase(BaseModel):
@@ -65,7 +64,7 @@ class AvailableDatabase(BaseModel):
 
     database: str
     path: str
-    suggested_replica: Optional[str] = None
+    suggested_replica: str | None = None
 
 
 class Status(BaseModel):
@@ -76,24 +75,24 @@ class Status(BaseModel):
     """
 
     running: bool
-    can_manage: Optional[bool] = None
-    metrics_enabled: Optional[bool] = None
-    daemon: Optional[DaemonInfo] = None
-    socket_error: Optional[str] = None
-    databases: Optional[list[ManagedDatabase]] = None
-    available: Optional[list[AvailableDatabase]] = None
-    warnings: Optional[list[str]] = None
+    can_manage: bool | None = None
+    metrics_enabled: bool | None = None
+    daemon: DaemonInfo | None = None
+    socket_error: str | None = None
+    databases: list[ManagedDatabase] | None = None
+    available: list[AvailableDatabase] | None = None
+    warnings: list[str] | None = None
 
 
 class ActionResult(BaseModel):
     """Payload of the POST endpoints (sync/start/stop/register/unregister)."""
 
     ok: bool
-    error: Optional[str] = None
-    details: Optional[str] = None
-    database: Optional[str] = None
-    path: Optional[str] = None
-    replica: Optional[str] = None
-    status: Optional[str] = None
-    txid: Optional[Any] = None
-    result: Optional[Any] = None
+    error: str | None = None
+    details: str | None = None
+    database: str | None = None
+    path: str | None = None
+    replica: str | None = None
+    status: str | None = None
+    txid: Any | None = None
+    result: Any | None = None

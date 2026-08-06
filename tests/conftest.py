@@ -1,8 +1,18 @@
 import os
 import shutil
+
 import pytest
+import sqlite_utils
+from sqlite_utils.db import Table
 
 from datasette_litestream.process import processes
+
+
+def table(db_path, name: str) -> Table:
+    """Typed table accessor: ``Database()[name]`` is ``Table | View``."""
+    t = sqlite_utils.Database(str(db_path))[name]
+    assert isinstance(t, Table)
+    return t
 
 
 def litestream_binary_path():
@@ -48,10 +58,10 @@ def _cleanup_daemons():
         if task is not None:
             try:
                 task.cancel()
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 -- cleanup must not fail
                 pass
         try:
             proc.stop_daemon()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- cleanup must not fail
             pass
     processes.clear()

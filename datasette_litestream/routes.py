@@ -88,7 +88,7 @@ async def _build_status(datasette, litestream_process, can_manage):
                         "replica": litestream_process.registered.get(path),
                     }
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- best effort, surfaced in the UI
             socket_error = str(e)
 
     # Attached, file-backed Datasette databases not currently replicating.
@@ -211,7 +211,9 @@ async def _db_action(datasette, db_name, method_name, **kwargs):
 
 @router.POST(r"^/-/litestream/api/sync$", output=ActionResult)
 @permission_required(MANAGE_ACTION)
-async def litestream_api_sync(datasette, request, body: Annotated[DbActionBody, Body()]):
+async def litestream_api_sync(
+    datasette, request, body: Annotated[DbActionBody, Body()]
+):
     """POST /-/litestream/api/sync  {"database": "<name>"}"""
     return await _db_action(datasette, body.database, "sync", wait=True)
 
@@ -227,14 +229,18 @@ async def litestream_api_start(
 
 @router.POST(r"^/-/litestream/api/stop$", output=ActionResult)
 @permission_required(MANAGE_ACTION)
-async def litestream_api_stop(datasette, request, body: Annotated[DbActionBody, Body()]):
+async def litestream_api_stop(
+    datasette, request, body: Annotated[DbActionBody, Body()]
+):
     """POST /-/litestream/api/stop  {"database": "<name>"}"""
     return await _db_action(datasette, body.database, "stop")
 
 
 @router.POST(r"^/-/litestream/register$", output=ActionResult)
 @permission_required(MANAGE_ACTION)
-async def litestream_register(datasette, request, body: Annotated[RegisterBody, Body()]):
+async def litestream_register(
+    datasette, request, body: Annotated[RegisterBody, Body()]
+):
     """POST /-/litestream/register  {"database": "<name>", "replica": "<url?>"}
 
     Registers a currently-attached Datasette database with the running litestream
@@ -381,9 +387,7 @@ async def litestream_status(datasette, request):
                         "last_sync_at": entry.get("last_sync_at"),
                     }
                 )
-        except LitestreamControlError as e:
-            socket_error = str(e)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- best effort, surfaced in the UI
             socket_error = str(e)
 
     replica_operations = {"bytes": [], "total": []}
@@ -396,8 +400,11 @@ async def litestream_status(datasette, request):
         addr = litestream_process.metrics_addr
         # TODO detect when non-localhost addresses are used
         try:
-            metrics_page = httpx.get(f"http://localhost{addr}/metrics").text
-        except Exception:
+            async with httpx.AsyncClient() as client:
+                metrics_page = (
+                    await client.get(f"http://localhost{addr}/metrics")
+                ).text
+        except Exception:  # noqa: BLE001 -- metrics are optional
             metrics_page = ""
 
         for family in text_string_to_metric_families(metrics_page):
@@ -440,7 +447,7 @@ async def litestream_status(datasette, request):
                 "daemon_info": daemon_info,
                 "managed_databases": managed,
                 "socket_error": socket_error,
-                "logs": open(litestream_process.logfile.name, "r").read(),
+                "logs": Path(litestream_process.logfile.name).read_text(),
                 "metrics_enabled": metrics_enabled,
                 "litestream_config": json.dumps(
                     redact_credentials(litestream_process.daemon_config or {}), indent=2

@@ -2,9 +2,9 @@
 frontend types are generated from, request-body validation, and that live
 endpoint payloads actually validate against the contract models."""
 
-from datasette.app import Datasette
 import pytest
-import sqlite_utils
+from conftest import table
+from datasette.app import Datasette
 
 import datasette_litestream.routes  # noqa: F401  (registers the handlers)
 from datasette_litestream.contract import ActionResult, Status
@@ -66,7 +66,9 @@ def test_openapi_document_covers_all_routes():
         "/-/litestream/unregister",
         "/-/litestream-status",
     }
-    status_response = doc["paths"]["/-/litestream/api/status"]["get"]["responses"]["200"]
+    status_response = doc["paths"]["/-/litestream/api/status"]["get"]["responses"][
+        "200"
+    ]
     assert "application/json" in status_response["content"]
     sync_op = doc["paths"]["/-/litestream/api/sync"]["post"]
     assert "requestBody" in sync_op
@@ -112,7 +114,7 @@ async def test_invalid_body_returns_400(body):
 @pytest.mark.asyncio
 async def test_status_payload_matches_contract(litestream_binary, tmpdir):
     db = str(tmpdir / "data.db")
-    sqlite_utils.Database(db)["t"].insert({"v": 1})
+    table(db, "t").insert({"v": 1})
     ds = _datasette(tmpdir, [db])
     await ds.invoke_startup()
 
@@ -124,6 +126,7 @@ async def test_status_payload_matches_contract(litestream_binary, tmpdir):
     status = Status.model_validate(response.json())
     assert status.running is True
     assert status.daemon is not None
+    assert status.databases is not None
     assert any(d.database == "data" for d in status.databases)
 
 
@@ -144,7 +147,7 @@ async def test_status_not_running_matches_contract():
 @pytest.mark.asyncio
 async def test_action_payloads_match_contract(litestream_binary, tmpdir):
     db = str(tmpdir / "data.db")
-    sqlite_utils.Database(db)["t"].insert({"v": 1})
+    table(db, "t").insert({"v": 1})
     ds = _datasette(tmpdir, [db])
     await ds.invoke_startup()
     headers = await root_token(ds)

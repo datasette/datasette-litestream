@@ -1,14 +1,10 @@
 """Tests for the Svelte/Vite admin UI: the page route, the JSON status API,
 and the sync/start/stop endpoints (all gated by litestream permissions)."""
 
+import pytest
+from conftest import table
 from datasette.app import Datasette
 from datasette.database import Database
-import pytest
-import sqlite_utils
-from pathlib import Path
-import time
-
-from datasette_litestream.process import processes, DATASETTE_LITESTREAM_PROCESS_KEY
 
 actor_root = {"a": {"id": "root"}}
 
@@ -44,7 +40,7 @@ def root_cookies(datasette):
 @pytest.mark.asyncio
 async def test_admin_page_requires_permission(litestream_binary, tmpdir):
     db = str(tmpdir / "data.db")
-    sqlite_utils.Database(db)["t"].insert({"v": 1})
+    table(db, "t").insert({"v": 1})
     ds, _ = _datasette(tmpdir, [db])
 
     response = await ds.client.get("/-/litestream")
@@ -54,7 +50,7 @@ async def test_admin_page_requires_permission(litestream_binary, tmpdir):
 @pytest.mark.asyncio
 async def test_admin_page_renders(litestream_binary, tmpdir):
     db = str(tmpdir / "data.db")
-    sqlite_utils.Database(db)["t"].insert({"v": 1})
+    table(db, "t").insert({"v": 1})
     ds, _ = _datasette(tmpdir, [db])
 
     response = await ds.client.get("/-/litestream", cookies=root_cookies(ds))
@@ -71,7 +67,7 @@ async def test_admin_page_renders(litestream_binary, tmpdir):
 @pytest.mark.asyncio
 async def test_api_status_requires_permission(litestream_binary, tmpdir):
     db = str(tmpdir / "data.db")
-    sqlite_utils.Database(db)["t"].insert({"v": 1})
+    table(db, "t").insert({"v": 1})
     ds, _ = _datasette(tmpdir, [db])
 
     response = await ds.client.get("/-/litestream/api/status")
@@ -82,17 +78,15 @@ async def test_api_status_requires_permission(litestream_binary, tmpdir):
 async def test_api_status_payload(litestream_binary, tmpdir):
     db = str(tmpdir / "data.db")
     extra = str(tmpdir / "extra.db")
-    sqlite_utils.Database(db)["t"].insert({"v": 1})
-    sqlite_utils.Database(extra)["t"].insert({"v": 1})
+    table(db, "t").insert({"v": 1})
+    table(extra, "t").insert({"v": 1})
     ds, _ = _datasette(tmpdir, [db])
     await ds.invoke_startup()
 
     # Attach a second db that is NOT registered -> should show as available.
     ds.add_database(Database(ds, path=extra, is_mutable=True), name="extra")
 
-    response = await ds.client.get(
-        "/-/litestream/api/status", cookies=root_cookies(ds)
-    )
+    response = await ds.client.get("/-/litestream/api/status", cookies=root_cookies(ds))
     assert response.status_code == 200
     payload = response.json()
     assert payload["running"] is True
@@ -115,9 +109,7 @@ async def test_api_status_not_running():
     ds = Datasette(memory=True)
     ds.root_enabled = True
     await ds.invoke_startup()
-    response = await ds.client.get(
-        "/-/litestream/api/status", cookies=root_cookies(ds)
-    )
+    response = await ds.client.get("/-/litestream/api/status", cookies=root_cookies(ds))
     assert response.status_code == 200
     assert response.json() == {"running": False}
 
@@ -128,7 +120,7 @@ async def test_api_status_not_running():
 @pytest.mark.asyncio
 async def test_api_sync_stop_start(litestream_binary, tmpdir):
     db = str(tmpdir / "data.db")
-    sqlite_utils.Database(db)["t"].insert({"v": 1})
+    table(db, "t").insert({"v": 1})
     ds, _ = _datasette(tmpdir, [db])
     await ds.invoke_startup()
     headers = await root_token(ds)
@@ -158,7 +150,7 @@ async def test_api_sync_stop_start(litestream_binary, tmpdir):
 @pytest.mark.asyncio
 async def test_api_sync_requires_permission(litestream_binary, tmpdir):
     db = str(tmpdir / "data.db")
-    sqlite_utils.Database(db)["t"].insert({"v": 1})
+    table(db, "t").insert({"v": 1})
     ds, _ = _datasette(tmpdir, [db])
     await ds.invoke_startup()
 

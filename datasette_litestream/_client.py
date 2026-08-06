@@ -52,9 +52,7 @@ class LitestreamClient:
 
     def _request(self, method, path, *, json_body=None, params=None):
         with self._client() as client:
-            response = client.request(
-                method, path, json=json_body, params=params
-            )
+            response = client.request(method, path, json=json_body, params=params)
         if response.status_code >= 400:
             error = None
             details = None
@@ -62,7 +60,7 @@ class LitestreamClient:
                 payload = response.json()
                 error = payload.get("error")
                 details = payload.get("details")
-            except Exception:
+            except ValueError:
                 error = response.text
             raise LitestreamControlError(
                 error or f"litestream control socket returned {response.status_code}",

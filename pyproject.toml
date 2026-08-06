@@ -27,6 +27,7 @@ litestream = "datasette_litestream"
 dev = [
     "pytest",
     "pytest-asyncio",
+    "ruff>=0.15.0",
     "ty>=0.0.68",
 ]
 

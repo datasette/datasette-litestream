@@ -1,26 +1,28 @@
+import asyncio
+import json
+from pathlib import Path
+
+import pytest
+import sqlite_utils
+from conftest import table
 from datasette.app import Datasette
 from datasette.database import Database
 from datasette.utils import StartupError
-import pytest
-import sqlite_utils
-from pathlib import Path
-import json
-import time
 
-from datasette_litestream.process import (
-    load_credentials_from_file,
-    load_credentials_from_command,
-    get_dynamic_credentials,
-    credentials_hash,
-    credentials_env,
-    redact_credentials,
-    processes,
-    DATASETTE_LITESTREAM_PROCESS_KEY,
-)
 from datasette_litestream.config import (
     Credentials,
     DatabaseConfig,
     LitestreamConfig,
+)
+from datasette_litestream.process import (
+    DATASETTE_LITESTREAM_PROCESS_KEY,
+    credentials_env,
+    credentials_hash,
+    get_dynamic_credentials,
+    load_credentials_from_command,
+    load_credentials_from_file,
+    processes,
+    redact_credentials,
 )
 from datasette_litestream.replicas import (
     expand_replica_template,
@@ -34,7 +36,7 @@ actor_root = {"a": {"id": "root"}}
 def students_db_path(tmpdir):
     path = str(tmpdir / "students.db")
     db = sqlite_utils.Database(path)
-    db["students"].insert_all(
+    table(path, "students").insert_all(
         [
             {"name": "alex", "age": 10},
             {"name": "brian", "age": 20},
@@ -42,7 +44,7 @@ def students_db_path(tmpdir):
         ]
     )
     db.execute("create table courses(name text primary key) without rowid")
-    db["courses"].insert_all(
+    table(path, "courses").insert_all(
         [
             {"name": "MATH 101"},
             {"name": "MATH 102"},
@@ -223,14 +225,14 @@ async def test_basic_db_level(litestream_binary, students_db_path):
     for _ in range(20):
         if replica_has_data(backup_dir):
             break
-        time.sleep(0.25)
+        await asyncio.sleep(0.25)
     assert replica_has_data(backup_dir)
 
 
 @pytest.mark.asyncio
 async def test_all_replicate_template(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
-    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
 
     datasette = Datasette(
@@ -249,7 +251,7 @@ async def test_all_replicate_template(litestream_binary, tmpdir):
     for _ in range(20):
         if replica_has_data(str(expected)):
             break
-        time.sleep(0.25)
+        await asyncio.sleep(0.25)
     assert replica_has_data(str(expected))
 
 
@@ -262,8 +264,8 @@ async def test_all_replicate_template(litestream_binary, tmpdir):
 async def test_runtime_register_and_unregister(litestream_binary, tmpdir):
     data_path = str(tmpdir / "data.db")
     extra_path = str(tmpdir / "extra.db")
-    sqlite_utils.Database(data_path)["t"].insert({"v": 1})
-    sqlite_utils.Database(extra_path)["t"].insert({"v": 1})
+    table(data_path, "t").insert({"v": 1})
+    table(extra_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
 
     datasette = Datasette(
@@ -311,7 +313,7 @@ async def test_runtime_register_and_unregister(litestream_binary, tmpdir):
     for _ in range(20):
         if replica_has_data(str(extra_backup)):
             break
-        time.sleep(0.25)
+        await asyncio.sleep(0.25)
     assert replica_has_data(str(extra_backup))
 
     # Now unregister it.
@@ -328,7 +330,7 @@ async def test_runtime_register_and_unregister(litestream_binary, tmpdir):
 @pytest.mark.asyncio
 async def test_register_route_requires_permission(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
-    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
 
     datasette = Datasette(
@@ -352,7 +354,7 @@ async def test_register_route_requires_permission(litestream_binary, tmpdir):
 @pytest.mark.asyncio
 async def test_register_unknown_database(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
-    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
 
     datasette = Datasette(
@@ -503,6 +505,7 @@ def test_get_dynamic_credentials_with_file(tmpdir):
             credentials_file=str(creds_file), credentials_refresh_interval=60
         )
     )
+    assert result is not None
     assert result.access_key_id == "AKIAFILE"
 
 
@@ -516,6 +519,7 @@ def test_get_dynamic_credentials_with_command():
             credentials_refresh_interval=60,
         )
     )
+    assert result is not None
     assert result.access_key_id == "AKIACMD"
 
 
@@ -657,7 +661,7 @@ async def test_credentials_file_basic(litestream_binary, students_db_path, tmpdi
     for _ in range(20):
         if replica_has_data(backup_dir):
             break
-        time.sleep(0.25)
+        await asyncio.sleep(0.25)
     assert replica_has_data(backup_dir)
 
 
@@ -771,7 +775,7 @@ async def test_credential_refresh_task_is_stored(
 @pytest.mark.asyncio
 async def test_replicate_internal(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
-    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
 
     datasette = Datasette(
@@ -793,7 +797,7 @@ async def test_replicate_internal(litestream_binary, tmpdir):
     for _ in range(20):
         if replica_has_data(str(expected)):
             break
-        time.sleep(0.25)
+        await asyncio.sleep(0.25)
     assert replica_has_data(str(expected))
 
     startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)
@@ -813,7 +817,7 @@ async def test_replicate_internal(litestream_binary, tmpdir):
 @pytest.mark.asyncio
 async def test_replicate_internal_ephemeral_warns(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
-    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
 
     # No internal= argument: the internal database is an ephemeral temp file
@@ -846,7 +850,7 @@ async def test_replicate_internal_ephemeral_warns(litestream_binary, tmpdir):
 @pytest.mark.asyncio
 async def test_in_memory_database_warns(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
-    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
 
     datasette = Datasette(

@@ -37,9 +37,19 @@ types-routes:
   # stay optional in the generated types.
   npx --prefix frontend openapi-typescript "$tmp" --default-non-nullable=false > frontend/api.d.ts
 
-# Type-check the backend (ty)
+# Format Python code (ruff)
+format-backend *flags:
+  uv run ruff format datasette_litestream tests {{flags}}
+
+# Lint Python code (ruff)
+lint-backend *flags:
+  uv run ruff check datasette_litestream tests {{flags}}
+
+# Lint + type-check the backend (ruff, ty)
 check-backend:
-  uv run ty check datasette_litestream
+  uv run ruff check datasette_litestream tests
+  uv run ruff format --check datasette_litestream tests
+  uv run ty check datasette_litestream tests
 
 # Type-check the frontend
 check-frontend:

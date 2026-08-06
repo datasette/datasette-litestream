@@ -2,11 +2,11 @@
 model validation, kebab-case aliases, extra="forbid" typo detection, union
 normalization, and the startup behavior for invalid config."""
 
+import pytest
+from conftest import table
 from datasette.app import Datasette
 from datasette.utils import StartupError
 from pydantic import ValidationError
-import pytest
-import sqlite_utils
 
 from datasette_litestream.config import (
     Credentials,
@@ -16,7 +16,6 @@ from datasette_litestream.config import (
     get_config,
     get_database_config,
 )
-
 
 # --- LitestreamConfig -------------------------------------------------------
 
@@ -81,9 +80,7 @@ def test_credentials_file_and_command_mutually_exclusive():
 
 
 def test_credentials_refresh_interval_required_with_dynamic():
-    with pytest.raises(
-        ValidationError, match="credentials-refresh-interval.*required"
-    ):
+    with pytest.raises(ValidationError, match="credentials-refresh-interval.*required"):
         LitestreamConfig.model_validate({"credentials-file": "/creds.json"})
 
 
@@ -157,7 +154,7 @@ async def test_startup_rejects_unknown_top_level_key(tmpdir):
 @pytest.mark.asyncio
 async def test_startup_rejects_unknown_database_key(tmpdir):
     db_path = str(tmpdir / "data.db")
-    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    table(db_path, "t").insert({"v": 1})
     ds = Datasette(
         [db_path],
         config={
@@ -183,12 +180,10 @@ async def test_get_config_is_cached_per_instance():
 @pytest.mark.asyncio
 async def test_get_database_config_none_vs_present(tmpdir):
     db_path = str(tmpdir / "data.db")
-    sqlite_utils.Database(db_path)["t"].insert({"v": 1})
+    table(db_path, "t").insert({"v": 1})
     ds = Datasette(
         [db_path],
-        config={
-            "databases": {"data": {"plugins": {"datasette-litestream": {}}}}
-        },
+        config={"databases": {"data": {"plugins": {"datasette-litestream": {}}}}},
     )
     # Presence of an (even empty) db-level block is meaningful.
     assert get_database_config(ds, "data") == DatabaseConfig()
