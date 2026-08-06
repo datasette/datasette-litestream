@@ -1,5 +1,4 @@
 plugins:
   datasette-litestream:
     metrics-addr: :9090
-    all-replicate:
-      - file://$PWD/demo/backups/$DB_NAME
+    replica-template: file://$PWD/demo/backups/$DB_NAME

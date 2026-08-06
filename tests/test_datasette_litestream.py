@@ -166,13 +166,13 @@ def test_resolve_replica_url_db_level_single(tmpdir):
     assert url == "s3://bucket/mydb"
 
 
-def test_resolve_replica_url_all_replicate_template(tmpdir):
+def test_resolve_replica_url_template_fallback(tmpdir):
     db_path = Path(str(tmpdir / "mydb.db"))
     url = resolve_replica_url("mydb", db_path, None, "file:///backups/$DB_NAME")
     assert url == "file:///backups/mydb"
 
 
-def test_resolve_replica_url_db_level_wins_over_all_replicate(tmpdir):
+def test_resolve_replica_url_db_level_wins_over_replica_template(tmpdir):
     db_path = Path(str(tmpdir / "mydb.db"))
     url = resolve_replica_url(
         "mydb",
@@ -264,7 +264,7 @@ async def test_basic_db_level(litestream_binary, students_db_path):
 
 
 @pytest.mark.asyncio
-async def test_all_replicate_template(litestream_binary, tmpdir):
+async def test_replica_template(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
     table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
@@ -274,7 +274,7 @@ async def test_all_replicate_template(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -302,7 +302,7 @@ async def test_logging_path(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME",
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME",
                     "logging": {"path": str(log_path)},
                 }
             }
@@ -344,7 +344,7 @@ async def test_runtime_register_and_unregister(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -409,7 +409,7 @@ async def test_register_route_requires_permission(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -433,7 +433,7 @@ async def test_register_unknown_database(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1055,7 +1055,7 @@ async def test_register_during_rotation_integration(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1130,7 +1130,7 @@ async def test_unregister_detached_database_integration(litestream_binary, tmpdi
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1267,7 +1267,7 @@ async def test_dead_daemon_returns_json_5xx(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1346,7 +1346,7 @@ async def test_restrict_runtime_replicas(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME",
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME",
                     "restrict-runtime-replicas": True,
                 }
             }
@@ -1385,7 +1385,7 @@ async def test_restrict_runtime_replicas(litestream_binary, tmpdir):
 
 
 @pytest.mark.asyncio
-async def test_all_replicate_skips_immutable_db(litestream_binary, tmpdir):
+async def test_replica_template_skips_immutable_db(litestream_binary, tmpdir):
     data_path = str(tmpdir / "data.db")
     ro_path = str(tmpdir / "readonly.db")
     table(data_path, "t").insert({"v": 1})
@@ -1398,7 +1398,7 @@ async def test_all_replicate_skips_immutable_db(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1780,7 +1780,7 @@ async def test_replicate_internal(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME",
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME",
                     "replicate-internal": True,
                 }
             }
@@ -1822,7 +1822,7 @@ async def test_replicate_internal_ephemeral_warns(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME",
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME",
                     "replicate-internal": True,
                 }
             }
@@ -1854,7 +1854,7 @@ async def test_in_memory_database_warns(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1896,7 +1896,7 @@ async def test_deprecated_replicas_list_fails_startup(students_db_path):
 
 
 @pytest.mark.asyncio
-async def test_all_replicate_list_fails_startup(tmpdir):
+async def test_replica_template_list_fails_startup(tmpdir):
     db_path = str(tmpdir / "data.db")
     table(db_path, "t").insert({"v": 1})
     datasette = Datasette(
@@ -1904,7 +1904,7 @@ async def test_all_replicate_list_fails_startup(tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": [
+                    "replica-template": [
                         "file://" + str(tmpdir / "backups") + "/$DB_NAME",
                         "s3://second-bucket/$DB_NAME",
                     ]
@@ -1917,9 +1917,9 @@ async def test_all_replicate_list_fails_startup(tmpdir):
 
 
 @pytest.mark.asyncio
-async def test_empty_db_block_without_all_replicate_warns(students_db_path, capsys):
+async def test_empty_db_block_without_replica_template_warns(students_db_path, capsys):
     """An empty db-level block opts the database in, but with no 'replica' URL
-    and no 'all-replicate' there is nothing to replicate to — say so instead
+    and no 'replica-template' there is nothing to replicate to — say so instead
     of silently skipping the database."""
     datasette = Datasette(
         [students_db_path],

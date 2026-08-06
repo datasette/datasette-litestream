@@ -30,7 +30,7 @@ def _datasette(tmpdir, db_paths):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },

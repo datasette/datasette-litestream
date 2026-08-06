@@ -37,7 +37,7 @@ class RegisterBody(BaseModel):
     """Body for /-/litestream/register."""
 
     database: str
-    # Optional replica URL; falls back to db-level / all-replicate config.
+    # Optional replica URL; falls back to db-level / replica-template config.
     replica: str | None = None
 
     @field_validator("replica")

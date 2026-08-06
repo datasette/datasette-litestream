@@ -48,7 +48,7 @@ def _suggested_replica(datasette, db_name, db_path):
         db_name,
         Path(db_path),
         get_database_config(datasette, db_name),
-        get_config(datasette).all_replicate,
+        get_config(datasette).replica_template,
     )
 
 
@@ -149,7 +149,7 @@ async def _build_status(datasette, litestream_process, can_manage):
                     INTERNAL_DB_NAME,
                     internal_path,
                     None,
-                    config.all_replicate,
+                    config.replica_template,
                 )
             available.append(
                 {
@@ -277,7 +277,7 @@ async def litestream_register(
 
     Registers a currently-attached Datasette database with the running litestream
     daemon at runtime. The replica URL may be supplied in the body, otherwise it
-    is resolved from the plugin's ``all-replicate`` / db-level config.
+    is resolved from the plugin's ``replica-template`` / db-level config.
     """
     litestream_process = get_process(datasette)
     if litestream_process is None:

@@ -46,17 +46,17 @@ datasette my_database.db -c datasette.yml
 
 ### Replicate all databases
 
-If you have multiple attached databases in Datasette and want to replicate all of them, the top-level `all-replicate` key can be used.
+If you have multiple attached databases in Datasette and want to replicate all of them, the top-level `replica-template` key can be used.
 
 ```yaml
 plugins:
   datasette-litestream:
-    all-replicate: s3://my-bucket/$DB_NAME
+    replica-template: s3://my-bucket/$DB_NAME
 ```
 
-When `all-replicate` is used, a new replica URL is generated for each attached database. In this case, if you had a database named `parking_tickets` and another named `city_budget`, then `datasette-litestream` will replicate them to `s3://my-bucket/parking_tickets` and `s3://my-bucket/city_budget`.
+When `replica-template` is used, a new replica URL is generated for each attached database. In this case, if you had a database named `parking_tickets` and another named `city_budget`, then `datasette-litestream` will replicate them to `s3://my-bucket/parking_tickets` and `s3://my-bucket/city_budget`.
 
-This is done with "variables" that `datasette-litestream` replaces in the `all-replicate` URL. The supported variables are:
+This is done with "variables" that `datasette-litestream` replaces in the `replica-template` URL. The supported variables are:
 
 - `$DB_NAME`: The name of the Datasette database to replicate.
 - `$DB_DIRECTORY`: The full parent directory that the SQLite database resides.
@@ -64,7 +64,7 @@ This is done with "variables" that `datasette-litestream` replaces in the `all-r
 
 Databases attached as immutable (`datasette -i data.db`) are never replicated:
 Litestream opens databases read-write and switches them to WAL journal mode,
-which would modify a file Datasette promises never to change. `all-replicate`
+which would modify a file Datasette promises never to change. `replica-template`
 skips immutable databases with a startup warning, and configuring a `replica`
 directly on an immutable database fails startup with an error.
 
@@ -76,10 +76,10 @@ Plugin configuration lives in your `datasette.yml` (passed with `-c`, or via `-s
 
 The following are valid keys that are allowed when specifying top-level plugin configuration:
 
-- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details.
-- `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `all-replicate` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
+- `replica-template`: A template replica URL used to replicate all attached Datasette databases, see above for details.
+- `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `replica-template` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given address. This endpoint is **unauthenticated** and also serves Go's `/debug/pprof` handlers, and an address without a host part (like `:9090`) listens on **all interfaces** — bind it to loopback (`127.0.0.1:9090`) or firewall it in production. The plugin prints a startup warning (also shown on the admin page) for all-interfaces binds.
-- `restrict-runtime-replicas`: When `true`, the runtime register API only accepts the replica URL derived from configuration (a database-level `replica` or the `all-replicate` template) — caller-supplied URLs that differ are rejected. Defaults to `false`. See the permissions note under [Admin UI](#admin-ui).
+- `restrict-runtime-replicas`: When `true`, the runtime register API only accepts the replica URL derived from configuration (a database-level `replica` or the `replica-template` template) — caller-supplied URLs that differ are rejected. Defaults to `false`. See the permissions note under [Admin UI](#admin-ui).
 - `logging`: Controls the Litestream daemon's logging. Litestream's log output is always captured to a log file (shown on the admin page) instead of being interleaved with Datasette's console output. Sub-keys:
   - `logging.level`: One of `debug`, `info`, `warn`, `error`. Defaults to `info`.
   - `logging.type`: Log format, `text` or `json`. Defaults to `text`.
@@ -103,7 +103,7 @@ Example:
 ```yaml
 plugins:
   datasette-litestream:
-    all-replicate: s3://my-bucket/$DB_NAME
+    replica-template: s3://my-bucket/$DB_NAME
     metrics-addr: 127.0.0.1:5001
     credentials:
       access-key-id: $YOUR_KEY
@@ -227,7 +227,7 @@ are provided, both gated behind the `litestream-manage` permission:
 - `POST /-/litestream/register` — body `{"database": "<name>", "replica": "<url>"}`.
   Registers an attached Datasette database with Litestream. If `replica` is
   omitted, the URL is resolved from the database's `replica` config or the
-  top-level `all-replicate` template.
+  top-level `replica-template` template.
 - `POST /-/litestream/unregister` — body `{"database": "<name>", "timeout": <seconds>}`.
   Removes a database from replication. Litestream performs a final sync to the
   replica before dropping it.

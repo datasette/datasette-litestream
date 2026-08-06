@@ -159,7 +159,7 @@ def startup(datasette):
     else:
         creds = config.credentials.static
 
-    all_replicate = config.all_replicate
+    replica_template = config.replica_template
     warnings = []
 
     # litestream's metrics server is unauthenticated and also mounts Go's
@@ -188,7 +188,7 @@ def startup(datasette):
             # _memory is always present and never file-backed; only warn about
             # databases this configuration would otherwise try to replicate.
             if db_name != "_memory" and (
-                db_config is not None or all_replicate is not None
+                db_config is not None or replica_template is not None
             ):
                 warnings.append(
                     f"Database '{db_name}' is in-memory only, so Litestream cannot replicate it."
@@ -209,23 +209,23 @@ def startup(datasette):
                     "mode) — open the database as mutable or remove its "
                     "datasette-litestream configuration."
                 )
-            if all_replicate is not None:
+            if replica_template is not None:
                 warnings.append(
                     f"Database '{db_name}' is immutable, so Litestream will not replicate it."
                 )
             continue
 
-        # skip this DB if "all-replicate" was not defined or no db-level config was given
-        if db_config is None and all_replicate is None:
+        # skip this DB if "replica-template" was not defined or no db-level config was given
+        if db_config is None and replica_template is None:
             continue
 
-        replica_url = resolve_replica_url(db_name, db_path, db_config, all_replicate)
+        replica_url = resolve_replica_url(db_name, db_path, db_config, replica_template)
         if replica_url is None:
             # Only possible with a db-level block that has no 'replica' URL
-            # and no 'all-replicate' fallback.
+            # and no 'replica-template' fallback.
             warnings.append(
                 f"Database '{db_name}' has a datasette-litestream block but no "
-                "'replica' URL, and no top-level 'all-replicate' is set, so it "
+                "'replica' URL, and no top-level 'replica-template' is set, so it "
                 "will not be replicated."
             )
             continue
@@ -245,12 +245,12 @@ def startup(datasette):
                 )
             else:
                 replica_url = resolve_replica_url(
-                    INTERNAL_DB_NAME, internal_path, None, all_replicate
+                    INTERNAL_DB_NAME, internal_path, None, replica_template
                 )
             if replica_url is None:
                 raise StartupError(
                     "datasette-litestream: 'replicate-internal' needs a replica URL — "
-                    "set it to a URL template or define 'all-replicate'"
+                    "set it to a URL template or define 'replica-template'"
                 )
             initial.append(
                 (INTERNAL_DB_NAME, str(internal_path.resolve()), replica_url)

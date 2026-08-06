@@ -23,13 +23,13 @@ from datasette_litestream.config import (
 def test_top_level_kebab_aliases():
     config = LitestreamConfig.model_validate(
         {
-            "all-replicate": "s3://bucket/$DB_NAME",
+            "replica-template": "s3://bucket/$DB_NAME",
             "replicate-internal": True,
             "metrics-addr": ":9090",
             "credentials": {"access-key-id": "AKIA", "secret-access-key": "secret"},
         }
     )
-    assert config.all_replicate == "s3://bucket/$DB_NAME"
+    assert config.replica_template == "s3://bucket/$DB_NAME"
     assert config.replicate_internal is True
     assert config.metrics_addr == ":9090"
     assert config.credentials.access_key_id == "AKIA"
@@ -44,26 +44,28 @@ def test_restrict_runtime_replicas_parses():
 def test_unknown_top_level_key_is_forbidden():
     with pytest.raises(ValidationError, match="not-a-real-key"):
         LitestreamConfig.model_validate({"not-a-real-key": 1})
-    with pytest.raises(ValidationError, match="all-replicat"):
-        LitestreamConfig.model_validate({"all-replicat": "s3://typo"})
+    with pytest.raises(ValidationError, match="replica-templat"):
+        LitestreamConfig.model_validate({"replica-templat": "s3://typo"})
 
 
 def test_snake_case_spellings_are_accepted():
     """populate_by_name means snake_case keys populate the field instead of
-    being silently ignored (the pre-model behavior for e.g. all_replicate)."""
-    config = LitestreamConfig.model_validate({"all_replicate": "s3://bucket/$DB_NAME"})
-    assert config.all_replicate == "s3://bucket/$DB_NAME"
+    being silently ignored (the pre-model behavior for e.g. replica_template)."""
+    config = LitestreamConfig.model_validate(
+        {"replica_template": "s3://bucket/$DB_NAME"}
+    )
+    assert config.replica_template == "s3://bucket/$DB_NAME"
 
 
-def test_all_replicate_list_is_rejected():
+def test_replica_template_list_is_rejected():
     """Pre-0.5 versions accepted a list and used the first entry; litestream
     0.5 replicates to a single destination, so a list is now an error."""
     with pytest.raises(ValidationError, match="single URL template"):
         LitestreamConfig.model_validate(
-            {"all-replicate": ["s3://bucket/a", "s3://bucket/b"]}
+            {"replica-template": ["s3://bucket/a", "s3://bucket/b"]}
         )
     with pytest.raises(ValidationError, match="single URL template"):
-        LitestreamConfig.model_validate({"all-replicate": []})
+        LitestreamConfig.model_validate({"replica-template": []})
 
 
 def test_replicate_internal_accepts_bool_or_template():
@@ -229,10 +231,10 @@ async def test_startup_rejects_unknown_database_key(tmpdir):
 async def test_get_config_is_cached_per_instance():
     ds = Datasette(
         memory=True,
-        config={"plugins": {"datasette-litestream": {"all-replicate": "s3://x"}}},
+        config={"plugins": {"datasette-litestream": {"replica-template": "s3://x"}}},
     )
     assert get_config(ds) is get_config(ds)
-    assert get_config(ds).all_replicate == "s3://x"
+    assert get_config(ds).replica_template == "s3://x"
 
 
 @pytest.mark.asyncio

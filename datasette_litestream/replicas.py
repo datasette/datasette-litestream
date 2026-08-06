@@ -1,7 +1,7 @@
 """Resolve which databases replicate where.
 
 Pure helpers that turn plugin configuration (replica URL templates,
-``all-replicate``, ``replicate-internal``) into concrete replica URLs and
+``replica-template``, ``replicate-internal``) into concrete replica URLs and
 database paths. No daemon or Datasette request state involved.
 """
 
@@ -46,17 +46,17 @@ def resolve_replica_url(
     db_name,
     db_path,
     db_config: DatabaseConfig | None,
-    all_replicate: str | None,
+    replica_template: str | None,
 ):
     """Determine the single replica URL for a database, or None to skip it.
 
     litestream 0.5 replicates each database to exactly one destination, so we
     resolve a single URL: the db-level ``replica``, falling back to the
-    top-level ``all-replicate`` template.
+    top-level ``replica-template`` template.
     """
     template = db_config.replica if db_config is not None else None
     if not template:
-        template = all_replicate
+        template = replica_template
     if not template:
         return None
     return expand_replica_template(template, db_name, db_path)

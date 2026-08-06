@@ -16,7 +16,7 @@ def _datasette(tmpdir, db_paths):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "all-replicate": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -98,7 +98,7 @@ async def test_api_status_payload(litestream_binary, tmpdir):
     assert "data" in managed
     available = {d["database"] for d in payload["available"]}
     assert "extra" in available
-    # The available entry carries a suggested replica from all-replicate.
+    # The available entry carries a suggested replica from replica-template.
     extra_row = next(d for d in payload["available"] if d["database"] == "extra")
     assert extra_row["suggested_replica"].endswith("/extra")
 

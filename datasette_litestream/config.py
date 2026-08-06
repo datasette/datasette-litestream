@@ -157,14 +157,14 @@ class LitestreamConfig(BaseModel):
     )
 
     # Template replica URL applied to every attached database.
-    all_replicate: str | None = None
+    replica_template: str | None = None
     # Also replicate Datasette's internal database: True derives the replica
-    # URL from all-replicate, a string is used as the URL template directly.
+    # URL from replica-template, a string is used as the URL template directly.
     replicate_internal: bool | str = False
     # litestream metrics/pprof bind address (e.g. ":9090").
     metrics_addr: str | None = None
     # When true, the runtime register API only accepts the replica URL derived
-    # from configuration (db-level 'replica' or the 'all-replicate' template);
+    # from configuration (db-level 'replica' or the 'replica-template' template);
     # caller-supplied URLs that differ are rejected with a 400.
     restrict_runtime_replicas: bool = False
     # litestream daemon logging: level, format and destination file.
@@ -172,7 +172,7 @@ class LitestreamConfig(BaseModel):
     # S3 credentials: static keys, or a dynamic file/command source.
     credentials: CredentialsConfig = Field(default_factory=CredentialsConfig)
 
-    @field_validator("all_replicate", mode="before")
+    @field_validator("replica_template", mode="before")
     @classmethod
     def _reject_list(cls, value):
         # Pre-0.5 versions accepted a list here and used the first entry;
@@ -181,7 +181,7 @@ class LitestreamConfig(BaseModel):
             # Not a TypeError: pydantic only turns ValueError into a
             # ValidationError; a TypeError would escape validation.
             raise ValueError(  # noqa: TRY004
-                "'all-replicate' must be a single URL template, not a list — "
+                "'replica-template' must be a single URL template, not a list — "
                 "litestream 0.5 replicates each database to a single destination"
             )
         return value
