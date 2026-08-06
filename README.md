@@ -272,5 +272,5 @@ Datasette that loads modules from it (auto-restarts on Python/HTML changes):
 
 ```bash
 just frontend-dev      # Vite dev server on :5180 (terminal 1)
-just dev-with-hmr      # Datasette with DATASETTE_LITESTREAM_VITE_PATH set (terminal 2)
+just dev-with-hmr      # Datasette pointed at the Vite dev server (terminal 2)
 ```

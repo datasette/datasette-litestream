@@ -8,6 +8,7 @@ license = "Apache-2.0"
 dependencies = [
     "datasette>=1.0a20",
     "datasette-plugin-router>=0.0.1a6",
+    "datasette-vite>=0.0.1a4",
     "httpx",
     "prometheus-client",
 ]

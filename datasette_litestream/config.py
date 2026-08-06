@@ -91,9 +91,6 @@ class LitestreamConfig(BaseModel):
     credentials_command: str | None = None
     credentials_refresh_interval: float | None = None
 
-    # Vite dev server base URL for admin UI development (see Justfile).
-    vite_dev_path: str | None = None
-
     @field_validator("all_replicate", mode="before")
     @classmethod
     def _first_of_list(cls, value):

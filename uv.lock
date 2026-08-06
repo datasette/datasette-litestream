@@ -153,6 +153,7 @@ source = { editable = "." }
 dependencies = [
     { name = "datasette" },
     { name = "datasette-plugin-router" },
+    { name = "datasette-vite" },
     { name = "httpx" },
     { name = "prometheus-client" },
 ]
@@ -168,6 +169,7 @@ dev = [
 requires-dist = [
     { name = "datasette", specifier = ">=1.0a20" },
     { name = "datasette-plugin-router", specifier = ">=0.0.1a6" },
+    { name = "datasette-vite", specifier = ">=0.0.1a4" },
     { name = "httpx" },
     { name = "prometheus-client" },
 ]
@@ -191,6 +193,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/13/0e/d789da73a00aaecba667c53736a1354865de5903a4cb125ac284ffc74c5d/datasette_plugin_router-0.0.1a6.tar.gz", hash = "sha256:6d6601f260d969a91fb6b66f587f2eb0daa1a2f89f8b15a46ad35fb08a51aae1", size = 12737, upload-time = "2026-07-12T19:17:28.64Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e8/42/feec94b69cb22977b94666a41ad9f1d63476a9f0a2c57b0bfc75432bf239/datasette_plugin_router-0.0.1a6-py3-none-any.whl", hash = "sha256:1eecc13f35761ee093bca356aab26c66218b310c9a1f0a0a91ab6a76d8166020", size = 13820, upload-time = "2026-07-12T19:17:27.213Z" },
+]
+
+[[package]]
+name = "datasette-vite"
+version = "0.0.1a4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "datasette" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d5/b0/f5e4ebd61181062e34ae9becffee296348feac00ebc91a2294b0bd7620d7/datasette_vite-0.0.1a4.tar.gz", hash = "sha256:30a722ad4b9cd6e499b446b1fbe271af261c6cdc057fb872a8e31c43478ada2f", size = 11138, upload-time = "2026-05-12T23:50:36.819Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b5/53/26978f469dbaa4ad9f80b6ace698451404880223e9c01c48678402e2f6b9/datasette_vite-0.0.1a4-py3-none-any.whl", hash = "sha256:35b5ed1b04454bb9f6e30aff7f53985bad2aeb5ad9b86342363fa64b0270848e", size = 9258, upload-time = "2026-05-12T23:50:35.512Z" },
 ]
 
 [[package]]

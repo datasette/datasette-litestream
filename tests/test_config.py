@@ -95,12 +95,6 @@ def test_static_credentials():
     assert creds == Credentials(access_key_id="AKIA", secret_access_key="secret")
 
 
-def test_vite_dev_path_accepts_both_spellings():
-    kebab = LitestreamConfig.model_validate({"vite-dev-path": "http://x/"})
-    snake = LitestreamConfig.model_validate({"vite_dev_path": "http://x/"})
-    assert kebab.vite_dev_path == snake.vite_dev_path == "http://x/"
-
-
 # --- DatabaseConfig ---------------------------------------------------------
 
 

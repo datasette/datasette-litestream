@@ -11,7 +11,6 @@
 ds_port := "8002"
 vite_port := "5180"
 litestream_version := "0.5.12"
-vite_base := "http://localhost:" + vite_port + "/-/static-plugins/datasette_litestream/"
 
 # Build the Svelte/Vite admin UI into the Python package
 frontend *flags:
@@ -104,6 +103,5 @@ dev *flags: demo-db litestream-bin
 # with hot-module reload. Start `just frontend-dev` in another terminal first.
 # Datasette auto-restarts on Python/HTML changes (needs watchexec).
 dev-with-hmr *flags: demo-db
-  DATASETTE_LITESTREAM_VITE_PATH={{vite_base}} \
   watchexec --stop-signal SIGKILL -e py,html --ignore '*.db' --restart --clear -- \
-    just dev {{flags}}
+    just dev -s plugins.datasette-vite.dev_ports.datasette_litestream {{vite_port}} {{flags}}

@@ -9,7 +9,6 @@ from pathlib import Path
 import time
 
 from datasette_litestream.process import processes, DATASETTE_LITESTREAM_PROCESS_KEY
-from datasette_litestream._vite import vite_entry
 
 actor_root = {"a": {"id": "root"}}
 
@@ -37,21 +36,6 @@ async def root_token(datasette):
 
 def root_cookies(datasette):
     return {"ds_actor": datasette.sign(actor_root, "actor")}
-
-
-# --- vite helper (unit) -----------------------------------------------------
-
-
-def test_vite_entry_renders_manifest_tags():
-    """With the built manifest present, vite_entry emits script + css tags."""
-    ds = Datasette(memory=True)
-    html = vite_entry(ds, "src/main.ts")
-    # If the frontend has been built, we get real asset tags; otherwise a
-    # helpful comment. Accept either so the suite passes pre-build, but assert
-    # the path convention when built.
-    if "not found in manifest" not in html:
-        assert "/-/static-plugins/datasette_litestream/gen/main-" in html
-        assert "<script" in html
 
 
 # --- admin page -------------------------------------------------------------

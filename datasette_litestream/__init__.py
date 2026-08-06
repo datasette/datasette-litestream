@@ -35,7 +35,7 @@ from .replicas import (
     resolve_replica_url,
 )
 from .router import MANAGE_ACTION, VIEW_STATUS_ACTION, router
-from ._vite import vite_entry
+from datasette_vite import vite_entry
 
 
 @hookimpl
@@ -77,11 +77,10 @@ def menu_links(datasette, actor):
 
 @hookimpl
 def extra_template_vars(datasette):
-    """Expose the Vite entry helper to templates as datasette_litestream_vite_entry."""
-
-    def entry(entrypoint):
-        return vite_entry(datasette, entrypoint)
-
+    entry = vite_entry(
+        datasette=datasette,
+        plugin_package="datasette_litestream",
+    )
     return {"datasette_litestream_vite_entry": entry}
 
 

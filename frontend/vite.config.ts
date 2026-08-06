@@ -6,7 +6,6 @@ import path from "node:path";
 // and is served by Datasette at /-/static-plugins/datasette_litestream/.
 export default defineConfig({
   plugins: [svelte()],
-  base: "/-/static-plugins/datasette_litestream/",
   build: {
     target: "esnext",
     outDir: path.resolve(__dirname, "../datasette_litestream"),
@@ -19,6 +18,8 @@ export default defineConfig({
   },
   server: {
     port: 5180,
+    strictPort: true,
     cors: true,
+    hmr: { host: "localhost", port: 5180, protocol: "ws" },
   },
 });
