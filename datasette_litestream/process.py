@@ -20,7 +20,7 @@ from datasette.utils import StartupError
 from pydantic import ValidationError
 
 from ._client import LitestreamClient
-from .config import Credentials, LitestreamConfig, LoadedCredentials
+from .config import Credentials, LitestreamConfig, LoadedCredentials, LoggingConfig
 
 
 def load_credentials_from_file(path: str) -> Credentials:
@@ -143,7 +143,8 @@ class LitestreamProcess:
     set of replicated databases changes.
     """
 
-    def __init__(self):
+    def __init__(self, logging_config: LoggingConfig | None = None):
+        self.logging = logging_config or LoggingConfig()
         self.process = None
         # Control socket path and a client bound to it.
         self.socket_dir = None
@@ -161,9 +162,20 @@ class LitestreamProcess:
         self.registered = {}
         # Startup warnings (e.g. in-memory databases), surfaced on the admin page.
         self.warnings = []
-        # Temp files. The logfile handle stays open for the daemon's lifetime:
-        # it is passed to Popen as stderr.
-        self.logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=True)  # noqa: SIM115
+        # The logfile receives the daemon's stderr (litestream is configured
+        # with ``logging.stderr: true``, so all its log output lands here).
+        # The handle stays open for the daemon's lifetime: it is passed to
+        # Popen as stderr.
+        if self.logging.path:
+            try:
+                self.logfile = open(self.logging.path, "ab")  # noqa: SIM115
+            except OSError as e:
+                raise StartupError(
+                    f"datasette-litestream: cannot open log file "
+                    f"{self.logging.path!r}: {e}"
+                ) from e
+        else:
+            self.logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=True)  # noqa: SIM115
         self.configfile = None
         # atexit handler (stored so we can unregister it) and refresh task.
         self._atexit_handler = None
@@ -183,7 +195,14 @@ class LitestreamProcess:
                 "enabled": True,
                 "path": self.socket_path,
                 "permissions": 0o600,
-            }
+            },
+            "logging": {
+                "level": self.logging.level,
+                "type": self.logging.type,
+                # litestream logs to stdout by default, which would bypass the
+                # Popen stderr redirect and spam the Datasette console.
+                "stderr": True,
+            },
         }
         if self.metrics_addr:
             self.daemon_config["addr"] = self.metrics_addr

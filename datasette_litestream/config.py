@@ -7,7 +7,9 @@ parsed ``LitestreamConfig`` is cached on the Datasette instance for route
 handlers via ``get_config()``.
 """
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PLUGIN_NAME = "datasette-litestream"
 
@@ -42,6 +44,26 @@ class LoadedCredentials(Credentials):
 
     access_key_id: str
     secret_access_key: str
+
+
+class LoggingConfig(BaseModel):
+    """``logging`` config block, passed through to the litestream daemon.
+
+    The daemon always runs with litestream's ``logging.stderr: true`` so its
+    output lands in the plugin's logfile (shown on the admin page and dumped
+    on startup failure) instead of the console; ``path`` redirects that
+    logfile somewhere durable.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=_kebab, populate_by_name=True, extra="forbid"
+    )
+
+    level: Literal["debug", "info", "warn", "error"] = "info"
+    type: Literal["text", "json"] = "text"
+    # Where litestream's log output is written (opened in append mode).
+    # None = a session-scoped temp file.
+    path: str | None = None
 
 
 class DatabaseConfig(BaseModel):
@@ -80,6 +102,8 @@ class LitestreamConfig(BaseModel):
     replicate_internal: bool | str = False
     # litestream metrics/pprof bind address (e.g. ":9090").
     metrics_addr: str | None = None
+    # litestream daemon logging: level, format and destination file.
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     # Static credentials.
     access_key_id: str | None = None

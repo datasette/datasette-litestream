@@ -73,6 +73,10 @@ The following are valid keys that are allowed when specifying top-level plugin c
 - `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details. (A list is accepted for backwards compatibility, but only the first entry is used.)
 - `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `all-replicate` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use with caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
+- `logging`: Controls the Litestream daemon's logging. Litestream's log output is always captured to a log file (shown on the admin page) instead of being interleaved with Datasette's console output. Sub-keys:
+  - `logging.level`: One of `debug`, `info`, `warn`, `error`. Defaults to `info`.
+  - `logging.type`: Log format, `text` or `json`. Defaults to `text`.
+  - `logging.path`: Write logs to this file (opened in append mode) instead of a session-scoped temporary file. Useful for long-lived deployments where you want the logs somewhere durable (and rotatable).
 - `access-key-id`: An alternate way to provide a S3 access key (though the `AWS_ACCESS_KEY_ID` environment variable is preferred).
 - `secret-access-key`: An alternate way to provide a S3 secret key (though the `AWS_SECRET_ACCESS_KEY` environment variable is preferred).
 - `session-token`: Optional AWS session token for temporary credentials (e.g., when using AWS STS).
@@ -93,6 +97,15 @@ plugins:
     metrics-addr: :5001
     access-key-id: $YOUR_KEY
     secret-access-key: $YOUR_SECRET
+    logging:
+      level: warn
+      path: /var/log/litestream.log
+```
+
+Individual keys can also be set from the command line with `-s`, for example:
+
+```bash
+datasette . -s plugins.datasette-litestream.logging.level warn
 ```
 
 ### Dynamic Credentials

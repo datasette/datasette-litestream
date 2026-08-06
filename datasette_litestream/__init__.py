@@ -119,8 +119,6 @@ async def credential_refresh_loop(
 
 @hookimpl
 def startup(datasette):
-    litestream_process = LitestreamProcess()
-
     plugin_config_top = datasette.plugin_config("datasette-litestream") or {}
 
     # Parse and cache the typed config; a typo'd or invalid key fails startup.
@@ -128,6 +126,8 @@ def startup(datasette):
         config = get_config(datasette)
     except ValidationError as e:
         raise StartupError(f"datasette-litestream: invalid configuration: {e}") from e
+
+    litestream_process = LitestreamProcess(logging_config=config.logging)
 
     # Load credentials from file/command or from static config
     if config.uses_dynamic_credentials:

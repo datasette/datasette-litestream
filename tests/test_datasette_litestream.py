@@ -8,17 +8,21 @@ from conftest import table
 from datasette.app import Datasette
 from datasette.database import Database
 from datasette.utils import StartupError
+from pydantic import ValidationError
 
 from datasette_litestream.config import (
     Credentials,
     DatabaseConfig,
     LitestreamConfig,
+    LoggingConfig,
 )
 from datasette_litestream.process import (
     DATASETTE_LITESTREAM_PROCESS_KEY,
+    LitestreamProcess,
     credentials_env,
     credentials_hash,
     get_dynamic_credentials,
+    get_process,
     load_credentials_from_command,
     load_credentials_from_file,
     processes,
@@ -186,6 +190,36 @@ def test_resolve_replica_url_none(tmpdir):
     assert resolve_replica_url("mydb", db_path, DatabaseConfig(), None) is None
 
 
+def test_logging_config_defaults():
+    config = LitestreamConfig()
+    assert config.logging.level == "info"
+    assert config.logging.type == "text"
+    assert config.logging.path is None
+
+
+def test_logging_config_parses():
+    config = LitestreamConfig.model_validate(
+        {"logging": {"level": "warn", "type": "json", "path": "/logs/litestream.log"}}
+    )
+    assert config.logging.level == "warn"
+    assert config.logging.type == "json"
+    assert config.logging.path == "/logs/litestream.log"
+
+
+def test_logging_config_rejects_invalid():
+    with pytest.raises(ValidationError):
+        LitestreamConfig.model_validate({"logging": {"level": "verbose"}})
+    with pytest.raises(ValidationError):
+        LitestreamConfig.model_validate({"logging": {"file": "x.log"}})
+
+
+def test_logging_path_unwritable():
+    with pytest.raises(StartupError):
+        LitestreamProcess(
+            logging_config=LoggingConfig(path="/nonexistent-dir/litestream.log")
+        )
+
+
 # ---------------------------------------------------------------------------
 # Integration: startup replication via the control socket
 # ---------------------------------------------------------------------------
@@ -253,6 +287,43 @@ async def test_all_replicate_template(litestream_binary, tmpdir):
             break
         await asyncio.sleep(0.25)
     assert replica_has_data(str(expected))
+
+
+@pytest.mark.asyncio
+async def test_logging_path(litestream_binary, tmpdir):
+    """litestream's log output is captured in the configured log file."""
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+    log_path = Path(str(tmpdir / "litestream.log"))
+
+    datasette = Datasette(
+        [db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": "file://" + str(backups) + "/$DB_NAME",
+                    "logging": {"path": str(log_path)},
+                }
+            }
+        },
+    )
+    await datasette.invoke_startup()
+
+    process = get_process(datasette)
+    assert process.daemon_config["logging"] == {
+        "level": "info",
+        "type": "text",
+        "stderr": True,
+    }
+
+    for _ in range(20):
+        if replica_has_data(str(backups / "data")):
+            break
+        await asyncio.sleep(0.25)
+    assert replica_has_data(str(backups / "data"))
+
+    assert "level=INFO" in log_path.read_text()
 
 
 # ---------------------------------------------------------------------------
