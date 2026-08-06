@@ -62,6 +62,10 @@ async def _build_status(datasette, litestream_process, can_manage):
     internal_path, _ = internal_database_path(datasette)
     if internal_path is not None:
         name_by_path.setdefault(str(internal_path.resolve()), INTERNAL_DB_NAME)
+    # Databases registered with the daemon but since detached from Datasette
+    # keep their last-known name.
+    for db_name, path in litestream_process.registered_names.items():
+        name_by_path.setdefault(path, db_name)
 
     daemon = None
     managed = []
@@ -189,7 +193,11 @@ async def _db_action(datasette, db_name, method_name, **kwargs):
             {"ok": False, "error": "'database' is required"}, status=400
         )
 
+    # Prefer the attached database's path; fall back to the path recorded at
+    # registration time in case the database was detached from Datasette.
     db_path = _resolve_db_path(datasette, db_name)
+    if db_path is None:
+        db_path = litestream_process.registered_names.get(db_name)
     if db_path is None:
         return Response.json(
             {"ok": False, "error": f"unknown or in-memory database: {db_name}"},
@@ -277,7 +285,7 @@ async def litestream_register(
 
     try:
         result = await asyncio.to_thread(
-            litestream_process.register_db, db_path, replica_url
+            litestream_process.register_db, db_path, replica_url, db_name
         )
     except LitestreamControlError as e:
         return Response.json(
@@ -318,9 +326,11 @@ async def litestream_unregister(
             {"ok": False, "error": "'database' is required"}, status=400
         )
 
-    # Prefer the attached database's path; fall back to any path we registered
-    # under this name in case the database was already detached from Datasette.
+    # Prefer the attached database's path; fall back to the path recorded at
+    # registration time in case the database was detached from Datasette.
     db_path = _resolve_db_path(datasette, db_name)
+    if db_path is None:
+        db_path = litestream_process.registered_names.get(db_name)
     if db_path is None:
         return Response.json(
             {"ok": False, "error": f"unknown or in-memory database: {db_name}"},

@@ -152,6 +152,10 @@ class LitestreamProcess:
         self.current_credentials_hash = None
         # path (str) -> replica_url for every database we have registered.
         self.registered = {}
+        # Datasette database name -> path, remembered at registration time so
+        # the manage API can still resolve a database that was later detached
+        # from Datasette.
+        self.registered_names = {}
         # Startup warnings (e.g. in-memory databases), surfaced on the admin page.
         self.warnings = []
         # The logfile receives the daemon's stderr (litestream is configured
@@ -364,11 +368,15 @@ class LitestreamProcess:
             )
         return self.client
 
-    def register_db(self, db_path: str, replica_url: str) -> dict:
+    def register_db(
+        self, db_path: str, replica_url: str, name: str | None = None
+    ) -> dict:
         """Register a database for replication over the control socket."""
         with self._lock:
             result = self._require_client().register(db_path, replica_url)
             self.registered[str(db_path)] = replica_url
+            if name is not None:
+                self.registered_names[name] = str(db_path)
             return result
 
     def unregister_db(self, db_path: str, timeout=None) -> dict:
@@ -376,6 +384,9 @@ class LitestreamProcess:
         with self._lock:
             result = self._require_client().unregister(db_path, timeout=timeout)
             self.registered.pop(str(db_path), None)
+            self.registered_names = {
+                n: p for n, p in self.registered_names.items() if p != str(db_path)
+            }
             return result
 
     def _reregister_all_locked(self):

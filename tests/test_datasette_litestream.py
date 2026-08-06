@@ -965,6 +965,9 @@ class FakeClient:
     def unregister(self, path, timeout=None):
         return {"status": "unregistered"}
 
+    def sync(self, path, wait=False, timeout=None):
+        return {"status": "synced"}
+
 
 @pytest.fixture
 def rotation_race(monkeypatch):
@@ -1080,6 +1083,97 @@ async def test_register_during_rotation_integration(litestream_binary, tmpdir):
     assert resolved_extra in listed
     assert resolved_extra in proc.registered
     assert resolved_data in proc.registered
+
+
+# ---------------------------------------------------------------------------
+# Detached databases stay manageable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unregister_detached_database_unit():
+    """The manage API resolves a database detached from Datasette via the
+    name recorded at registration time (no real daemon needed)."""
+    datasette = Datasette(memory=True)
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+
+    proc = LitestreamProcess()
+    proc.client = cast(LitestreamClient, FakeClient())
+    proc.registered["/tmp/gone.db"] = "file:///tmp/gone-replica"
+    proc.registered_names["gone"] = "/tmp/gone.db"
+    processes["test-detached"] = proc
+    setattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, "test-detached")
+
+    headers = await root_token(datasette)
+
+    # sync/start/stop resolve through the same fallback.
+    response = await datasette.client.post(
+        "/-/litestream/api/sync", json={"database": "gone"}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+
+    response = await datasette.client.post(
+        "/-/litestream/unregister", json={"database": "gone"}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["path"] == "/tmp/gone.db"
+    assert "/tmp/gone.db" not in proc.registered
+    assert "gone" not in proc.registered_names
+
+
+@pytest.mark.asyncio
+async def test_unregister_detached_database_integration(litestream_binary, tmpdir):
+    data_path = str(tmpdir / "data.db")
+    extra_path = str(tmpdir / "extra.db")
+    table(data_path, "t").insert({"v": 1})
+    table(extra_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    datasette = Datasette(
+        [data_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                }
+            }
+        },
+    )
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+    headers = await root_token(datasette)
+    proc = processes[getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)]
+
+    datasette.add_database(
+        Database(datasette, path=extra_path, is_mutable=True), name="extra"
+    )
+    response = await datasette.client.post(
+        "/-/litestream/register", json={"database": "extra"}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+
+    datasette.remove_database("extra")
+
+    # The status payload names the detached entry by its last-known name.
+    listed = await datasette.client.get(
+        "/-/litestream/api/status",
+        cookies={"ds_actor": datasette.sign(actor_root, "actor")},
+    )
+    entry = next(
+        db for db in listed.json()["databases"] if "extra.db" in (db["path"] or "")
+    )
+    assert entry["database"] == "extra"
+
+    # Unregistering by the original name still works after the detach.
+    response = await datasette.client.post(
+        "/-/litestream/unregister", json={"database": "extra"}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] in ("unregistered", "already_unregistered")
+    assert not any("extra.db" in p for p in proc.registered)
+    assert proc.client is not None
+    assert not any("extra.db" in db["path"] for db in proc.client.list_databases())
 
 
 # ---------------------------------------------------------------------------

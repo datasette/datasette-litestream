@@ -163,7 +163,7 @@ def startup(datasette):
     warnings = []
 
     # Work out which databases to replicate at startup.
-    initial = []  # list of (db_path_str, replica_url)
+    initial = []  # list of (db_name, db_path_str, replica_url)
     for db_name, db in datasette.databases.items():
         try:
             db_config = get_database_config(datasette, db_name)
@@ -193,7 +193,7 @@ def startup(datasette):
         if replica_url is None:
             continue
 
-        initial.append((str(db_path.resolve()), replica_url))
+        initial.append((db_name, str(db_path.resolve()), replica_url))
 
     if config.replicate_internal:
         internal_path, reason = internal_database_path(datasette)
@@ -215,7 +215,9 @@ def startup(datasette):
                     "datasette-litestream: 'replicate-internal' needs a replica URL — "
                     "set it to a URL template or define 'all-replicate'"
                 )
-            initial.append((str(internal_path.resolve()), replica_url))
+            initial.append(
+                (INTERNAL_DB_NAME, str(internal_path.resolve()), replica_url)
+            )
 
     for warning in warnings:
         print(f"datasette-litestream: WARNING: {warning}", file=sys.stderr)
@@ -238,8 +240,8 @@ def startup(datasette):
     setattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, startup_id)
 
     litestream_process.start_daemon()
-    for db_path, replica_url in initial:
-        litestream_process.register_db(db_path, replica_url)
+    for db_name, db_path, replica_url in initial:
+        litestream_process.register_db(db_path, replica_url, name=db_name)
 
     # Schedule credential refresh if using dynamic credentials. The interval
     # is re-checked here (the model validator guarantees it) to narrow away None.
