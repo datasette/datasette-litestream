@@ -17,8 +17,10 @@ from pathlib import Path
 from datasette import hookimpl
 from datasette.permissions import Action
 from datasette.utils import StartupError
+from pydantic import ValidationError
 
 from . import routes  # noqa: F401  (imports register the route handlers)
+from .config import LitestreamConfig, get_config, get_database_config
 from .process import (
     DATASETTE_LITESTREAM_PROCESS_KEY,
     LitestreamProcess,
@@ -84,7 +86,7 @@ def extra_template_vars(datasette):
 
 
 async def credential_refresh_loop(
-    startup_id: str, plugin_config: dict, interval_seconds: int
+    startup_id: str, config: LitestreamConfig, interval_seconds: float
 ):
     """Background task that periodically checks for credential changes."""
     while True:
@@ -94,7 +96,7 @@ async def credential_refresh_loop(
             if litestream_process is None:
                 return  # Process no longer exists
 
-            new_creds = get_dynamic_credentials(plugin_config)
+            new_creds = get_dynamic_credentials(config)
             if new_creds is None:
                 continue
 
@@ -122,63 +124,45 @@ def startup(datasette):
 
     plugin_config_top = datasette.plugin_config("datasette-litestream") or {}
 
-    # Validate mutually exclusive credential options
-    credentials_file = plugin_config_top.get("credentials-file")
-    credentials_command = plugin_config_top.get("credentials-command")
-    credentials_refresh_interval = plugin_config_top.get("credentials-refresh-interval")
-
-    if credentials_file and credentials_command:
-        raise StartupError(
-            "datasette-litestream: cannot specify both 'credentials-file' and 'credentials-command'"
-        )
-
-    uses_dynamic_credentials = credentials_file or credentials_command
-
-    if uses_dynamic_credentials and not credentials_refresh_interval:
-        raise StartupError(
-            "datasette-litestream: 'credentials-refresh-interval' is required when using "
-            "'credentials-file' or 'credentials-command'"
-        )
+    # Parse and cache the typed config; a typo'd or invalid key fails startup.
+    try:
+        config = get_config(datasette)
+    except ValidationError as e:
+        raise StartupError(f"datasette-litestream: invalid configuration: {e}") from e
 
     # Load credentials from file/command or from static config
-    creds = {}
-    if uses_dynamic_credentials:
+    if config.uses_dynamic_credentials:
         try:
-            dynamic_creds = get_dynamic_credentials(plugin_config_top)
-            creds = dynamic_creds
+            creds = get_dynamic_credentials(config)
         except Exception as e:
             raise StartupError(
                 f"datasette-litestream: failed to load initial credentials: {e}"
             ) from e
     else:
-        if "access-key-id" in plugin_config_top:
-            creds["access-key-id"] = plugin_config_top.get("access-key-id")
-        if "secret-access-key" in plugin_config_top:
-            creds["secret-access-key"] = plugin_config_top.get("secret-access-key")
-        if "session-token" in plugin_config_top:
-            creds["session-token"] = plugin_config_top.get("session-token")
+        creds = config.static_credentials
 
-    litestream_process.credentials = creds or None
-    litestream_process.current_credentials_hash = credentials_hash(creds or None)
+    litestream_process.credentials = creds
+    litestream_process.current_credentials_hash = credentials_hash(creds)
+    litestream_process.metrics_addr = config.metrics_addr
 
-    if "metrics-addr" in plugin_config_top:
-        litestream_process.metrics_addr = plugin_config_top.get("metrics-addr")
-
-    all_replicate = plugin_config_top.get("all-replicate")
-    replicate_internal = plugin_config_top.get("replicate-internal")
+    all_replicate = config.all_replicate
     warnings = []
 
     # Work out which databases to replicate at startup.
     initial = []  # list of (db_path_str, replica_url)
     for db_name, db in datasette.databases.items():
-        plugin_config_db = datasette.plugin_config(
-            "datasette-litestream", db_name, fallback=False
-        )
+        try:
+            db_config = get_database_config(datasette, db_name)
+        except ValidationError as e:
+            raise StartupError(
+                f"datasette-litestream: invalid configuration for database "
+                f"'{db_name}': {e}"
+            ) from e
         if db.path is None:
             # _memory is always present and never file-backed; only warn about
             # databases this configuration would otherwise try to replicate.
             if db_name != "_memory" and (
-                plugin_config_db is not None or all_replicate is not None
+                db_config is not None or all_replicate is not None
             ):
                 warnings.append(
                     f"Database '{db_name}' is in-memory only, so Litestream cannot replicate it."
@@ -188,25 +172,23 @@ def startup(datasette):
         db_path = Path(db.path)
 
         # skip this DB if "all-replicate" was not defined or no db-level config was given
-        if plugin_config_db is None and all_replicate is None:
+        if db_config is None and all_replicate is None:
             continue
 
-        replica_url = resolve_replica_url(
-            db_name, db_path, plugin_config_db, all_replicate
-        )
+        replica_url = resolve_replica_url(db_name, db_path, db_config, all_replicate)
         if replica_url is None:
             continue
 
         initial.append((str(db_path.resolve()), replica_url))
 
-    if replicate_internal:
+    if config.replicate_internal:
         internal_path, reason = internal_database_path(datasette)
         if internal_path is None:
             warnings.append(f"'replicate-internal' is enabled but cannot work: {reason}")
         else:
-            if isinstance(replicate_internal, str):
+            if isinstance(config.replicate_internal, str):
                 replica_url = expand_replica_template(
-                    replicate_internal, INTERNAL_DB_NAME, internal_path
+                    config.replicate_internal, INTERNAL_DB_NAME, internal_path
                 )
             else:
                 replica_url = resolve_replica_url(
@@ -236,10 +218,10 @@ def startup(datasette):
         litestream_process.register_db(db_path, replica_url)
 
     # Schedule credential refresh if using dynamic credentials. The interval
-    # is re-checked here (validated non-empty above) to narrow away None.
-    if uses_dynamic_credentials and credentials_refresh_interval:
+    # is re-checked here (the model validator guarantees it) to narrow away None.
+    if config.uses_dynamic_credentials and config.credentials_refresh_interval:
         litestream_process._refresh_task = asyncio.create_task(
             credential_refresh_loop(
-                startup_id, plugin_config_top, credentials_refresh_interval
+                startup_id, config, config.credentials_refresh_interval
             )
         )

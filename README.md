@@ -83,6 +83,8 @@ The following are valid keys that are allowed when specifying top-level plugin c
 
 None of these keys are required.
 
+Configuration is validated at startup: an unrecognized key (or an invalid value) raises an error instead of being silently ignored, so typos surface immediately.
+
 Example:
 
 ```yaml

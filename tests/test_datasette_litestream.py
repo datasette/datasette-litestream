@@ -17,6 +17,11 @@ from datasette_litestream.process import (
     processes,
     DATASETTE_LITESTREAM_PROCESS_KEY,
 )
+from datasette_litestream.config import (
+    Credentials,
+    DatabaseConfig,
+    LitestreamConfig,
+)
 from datasette_litestream.replicas import (
     expand_replica_template,
     resolve_replica_url,
@@ -98,24 +103,30 @@ async def test_no_litestream_config():
 
 
 def test_credentials_env_basic():
-    env = credentials_env({"access-key-id": "AKIA", "secret-access-key": "secret"})
+    env = credentials_env(
+        Credentials.model_validate(
+            {"access-key-id": "AKIA", "secret-access-key": "secret"}
+        )
+    )
     assert env == {"AWS_ACCESS_KEY_ID": "AKIA", "AWS_SECRET_ACCESS_KEY": "secret"}
 
 
 def test_credentials_env_with_session_token():
     env = credentials_env(
-        {
-            "access-key-id": "AKIA",
-            "secret-access-key": "secret",
-            "session-token": "token",
-        }
+        Credentials.model_validate(
+            {
+                "access-key-id": "AKIA",
+                "secret-access-key": "secret",
+                "session-token": "token",
+            }
+        )
     )
     assert env["AWS_SESSION_TOKEN"] == "token"
 
 
 def test_credentials_env_empty():
     assert credentials_env(None) == {}
-    assert credentials_env({}) == {}
+    assert credentials_env(Credentials()) == {}
 
 
 def test_expand_replica_template(tmpdir):
@@ -130,7 +141,9 @@ def test_expand_replica_template(tmpdir):
 
 def test_resolve_replica_url_db_level_single(tmpdir):
     db_path = Path(str(tmpdir / "mydb.db"))
-    url = resolve_replica_url("mydb", db_path, {"replica": "s3://bucket/mydb"}, None)
+    url = resolve_replica_url(
+        "mydb", db_path, DatabaseConfig(replica="s3://bucket/mydb"), None
+    )
     assert url == "s3://bucket/mydb"
 
 
@@ -140,7 +153,9 @@ def test_resolve_replica_url_db_level_replicas_list(tmpdir):
     url = resolve_replica_url(
         "mydb",
         db_path,
-        {"replicas": [{"url": "s3://bucket/a"}, {"url": "s3://bucket/b"}]},
+        DatabaseConfig.model_validate(
+            {"replicas": [{"url": "s3://bucket/a"}, {"url": "s3://bucket/b"}]}
+        ),
         None,
     )
     assert url == "s3://bucket/a"
@@ -148,7 +163,7 @@ def test_resolve_replica_url_db_level_replicas_list(tmpdir):
 
 def test_resolve_replica_url_all_replicate_template(tmpdir):
     db_path = Path(str(tmpdir / "mydb.db"))
-    url = resolve_replica_url("mydb", db_path, None, ["file:///backups/$DB_NAME"])
+    url = resolve_replica_url("mydb", db_path, None, "file:///backups/$DB_NAME")
     assert url == "file:///backups/mydb"
 
 
@@ -157,8 +172,8 @@ def test_resolve_replica_url_db_level_wins_over_all_replicate(tmpdir):
     url = resolve_replica_url(
         "mydb",
         db_path,
-        {"replica": "s3://specific/mydb"},
-        ["file:///backups/$DB_NAME"],
+        DatabaseConfig(replica="s3://specific/mydb"),
+        "file:///backups/$DB_NAME",
     )
     assert url == "s3://specific/mydb"
 
@@ -166,7 +181,7 @@ def test_resolve_replica_url_db_level_wins_over_all_replicate(tmpdir):
 def test_resolve_replica_url_none(tmpdir):
     db_path = Path(str(tmpdir / "mydb.db"))
     assert resolve_replica_url("mydb", db_path, None, None) is None
-    assert resolve_replica_url("mydb", db_path, {}, None) is None
+    assert resolve_replica_url("mydb", db_path, DatabaseConfig(), None) is None
 
 
 # ---------------------------------------------------------------------------
@@ -405,9 +420,9 @@ def test_load_credentials_from_file(tmpdir):
         encoding="utf-8",
     )
     result = load_credentials_from_file(str(creds_file))
-    assert result["access-key-id"] == "AKIATEST123"
-    assert result["secret-access-key"] == "secretkey456"
-    assert "session-token" not in result
+    assert result.access_key_id == "AKIATEST123"
+    assert result.secret_access_key == "secretkey456"
+    assert result.session_token is None
 
 
 def test_load_credentials_from_file_with_session_token(tmpdir):
@@ -423,7 +438,7 @@ def test_load_credentials_from_file_with_session_token(tmpdir):
         encoding="utf-8",
     )
     result = load_credentials_from_file(str(creds_file))
-    assert result["session-token"] == "sessiontoken789"
+    assert result.session_token == "sessiontoken789"
 
 
 def test_load_credentials_from_file_missing_keys(tmpdir):
@@ -445,9 +460,9 @@ def test_load_credentials_from_command():
         {"access-key-id": "AKIACMD789", "secret-access-key": "cmdsecret012"}
     )
     result = load_credentials_from_command(f"echo '{creds_json}'")
-    assert result["access-key-id"] == "AKIACMD789"
-    assert result["secret-access-key"] == "cmdsecret012"
-    assert "session-token" not in result
+    assert result.access_key_id == "AKIACMD789"
+    assert result.secret_access_key == "cmdsecret012"
+    assert result.session_token is None
 
 
 def test_load_credentials_from_command_with_session_token():
@@ -459,7 +474,7 @@ def test_load_credentials_from_command_with_session_token():
         }
     )
     result = load_credentials_from_command(f"echo '{creds_json}'")
-    assert result["session-token"] == "cmdsessiontoken345"
+    assert result.session_token == "cmdsessiontoken345"
 
 
 def test_load_credentials_from_command_failure():
@@ -483,38 +498,45 @@ def test_get_dynamic_credentials_with_file(tmpdir):
         json.dumps({"access-key-id": "AKIAFILE", "secret-access-key": "filesecret"}),
         encoding="utf-8",
     )
-    result = get_dynamic_credentials({"credentials-file": str(creds_file)})
-    assert result["access-key-id"] == "AKIAFILE"
+    result = get_dynamic_credentials(
+        LitestreamConfig(
+            credentials_file=str(creds_file), credentials_refresh_interval=60
+        )
+    )
+    assert result.access_key_id == "AKIAFILE"
 
 
 def test_get_dynamic_credentials_with_command():
     creds_json = json.dumps(
         {"access-key-id": "AKIACMD", "secret-access-key": "cmdsecret"}
     )
-    result = get_dynamic_credentials({"credentials-command": f"echo '{creds_json}'"})
-    assert result["access-key-id"] == "AKIACMD"
+    result = get_dynamic_credentials(
+        LitestreamConfig(
+            credentials_command=f"echo '{creds_json}'",
+            credentials_refresh_interval=60,
+        )
+    )
+    assert result.access_key_id == "AKIACMD"
 
 
 def test_get_dynamic_credentials_neither():
-    assert get_dynamic_credentials({}) is None
+    assert get_dynamic_credentials(LitestreamConfig()) is None
 
 
 def test_credentials_hash():
-    creds1 = {"access-key-id": "key1", "secret-access-key": "secret1"}
-    creds2 = {"access-key-id": "key1", "secret-access-key": "secret1"}
-    creds3 = {"access-key-id": "key2", "secret-access-key": "secret1"}
+    creds1 = Credentials(access_key_id="key1", secret_access_key="secret1")
+    creds2 = Credentials(access_key_id="key1", secret_access_key="secret1")
+    creds3 = Credentials(access_key_id="key2", secret_access_key="secret1")
     assert credentials_hash(creds1) == credentials_hash(creds2)
     assert credentials_hash(creds1) != credentials_hash(creds3)
     assert credentials_hash(None) == ""
 
 
 def test_credentials_hash_with_session_token():
-    creds_no_token = {"access-key-id": "key1", "secret-access-key": "secret1"}
-    creds_with_token = {
-        "access-key-id": "key1",
-        "secret-access-key": "secret1",
-        "session-token": "token1",
-    }
+    creds_no_token = Credentials(access_key_id="key1", secret_access_key="secret1")
+    creds_with_token = Credentials(
+        access_key_id="key1", secret_access_key="secret1", session_token="token1"
+    )
     assert credentials_hash(creds_no_token) != credentials_hash(creds_with_token)
 
 

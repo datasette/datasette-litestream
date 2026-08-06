@@ -8,6 +8,8 @@ database paths. No daemon or Datasette request state involved.
 import os
 from pathlib import Path
 
+from .config import DatabaseConfig
+
 
 def expand_replica_template(template: str, db_name: str, db_path: Path) -> str:
     """Expand the $DB_NAME / $DB_DIRECTORY / $PWD variables in a replica URL."""
@@ -46,28 +48,22 @@ def internal_database_path(datasette):
     return Path(internal_db.path), None
 
 
-def resolve_replica_url(db_name, db_path, plugin_config_db, all_replicate):
+def resolve_replica_url(
+    db_name,
+    db_path,
+    db_config: DatabaseConfig | None,
+    all_replicate: str | None,
+):
     """Determine the single replica URL for a database, or None to skip it.
 
     litestream 0.5 replicates each database to exactly one destination, so we
-    resolve a single URL. Precedence:
-      1. db-level config ``replica`` (a single URL string)
-      2. db-level config ``replicas`` (deprecated list; first entry is used)
-      3. top-level ``all-replicate`` template (string, or first entry of a list)
+    resolve a single URL: the db-level ``replica`` (into which the deprecated
+    ``replicas`` list is already folded by DatabaseConfig), falling back to the
+    top-level ``all-replicate`` template.
     """
-    template = None
-    if plugin_config_db:
-        if plugin_config_db.get("replica"):
-            template = plugin_config_db["replica"]
-        elif plugin_config_db.get("replicas"):
-            replicas = plugin_config_db["replicas"]
-            first = replicas[0]
-            template = first.get("url") if isinstance(first, dict) else first
-    if template is None and all_replicate is not None:
-        if isinstance(all_replicate, (list, tuple)):
-            template = all_replicate[0] if all_replicate else None
-        else:
-            template = all_replicate
-    if template is None:
+    template = db_config.replica if db_config is not None else None
+    if not template:
+        template = all_replicate
+    if not template:
         return None
     return expand_replica_template(template, db_name, db_path)

@@ -19,6 +19,8 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from .config import get_config
+
 PLUGIN_PACKAGE = "datasette_litestream"
 
 
@@ -40,8 +42,7 @@ def _vite_dev_path(datasette) -> str | None:
     env = os.environ.get("DATASETTE_LITESTREAM_VITE_PATH")
     if env:
         return env if env.endswith("/") else env + "/"
-    config = datasette.plugin_config("datasette-litestream") or {}
-    dev = config.get("vite_dev_path")
+    dev = get_config(datasette).vite_dev_path
     if dev:
         return dev if dev.endswith("/") else dev + "/"
     return None

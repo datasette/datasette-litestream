@@ -15,6 +15,7 @@ from datasette_plugin_router import Body
 from prometheus_client.parser import text_string_to_metric_families
 
 from ._client import LitestreamControlError
+from .config import get_config, get_database_config
 from .contract import (
     ActionResult,
     DbActionBody,
@@ -45,13 +46,12 @@ def _resolve_db_path(datasette, db_name):
 
 def _suggested_replica(datasette, db_name, db_path):
     """Resolve the configured replica URL for a database, if any."""
-    plugin_config_db = datasette.plugin_config(
-        "datasette-litestream", db_name, fallback=False
+    return resolve_replica_url(
+        db_name,
+        Path(db_path),
+        get_database_config(datasette, db_name),
+        get_config(datasette).all_replicate,
     )
-    all_replicate = (datasette.plugin_config("datasette-litestream") or {}).get(
-        "all-replicate"
-    )
-    return resolve_replica_url(db_name, Path(db_path), plugin_config_db, all_replicate)
 
 
 async def _build_status(datasette, litestream_process, can_manage):
@@ -111,18 +111,17 @@ async def _build_status(datasette, litestream_process, can_manage):
     if internal_path is not None:
         resolved = str(internal_path.resolve())
         if resolved not in registered_paths:
-            plugin_config_top = datasette.plugin_config("datasette-litestream") or {}
-            replicate_internal = plugin_config_top.get("replicate-internal")
-            if isinstance(replicate_internal, str):
+            config = get_config(datasette)
+            if isinstance(config.replicate_internal, str):
                 suggested = expand_replica_template(
-                    replicate_internal, INTERNAL_DB_NAME, internal_path
+                    config.replicate_internal, INTERNAL_DB_NAME, internal_path
                 )
             else:
                 suggested = resolve_replica_url(
                     INTERNAL_DB_NAME,
                     internal_path,
                     None,
-                    plugin_config_top.get("all-replicate"),
+                    config.all_replicate,
                 )
             available.append(
                 {
@@ -263,15 +262,7 @@ async def litestream_register(datasette, request, body: Annotated[RegisterBody, 
 
     replica_url = body.replica
     if not replica_url:
-        plugin_config_db = datasette.plugin_config(
-            "datasette-litestream", db_name, fallback=False
-        )
-        all_replicate = (
-            datasette.plugin_config("datasette-litestream") or {}
-        ).get("all-replicate")
-        replica_url = resolve_replica_url(
-            db_name, Path(db_path), plugin_config_db, all_replicate
-        )
+        replica_url = _suggested_replica(datasette, db_name, db_path)
     if not replica_url:
         return Response.json(
             {

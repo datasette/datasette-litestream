@@ -17,28 +17,26 @@ import time
 from pathlib import Path
 
 from datasette.utils import StartupError
+from pydantic import ValidationError
 
 from ._client import LitestreamClient
+from .config import Credentials, LitestreamConfig, LoadedCredentials
 
 
-def load_credentials_from_file(path: str) -> dict:
+def load_credentials_from_file(path: str) -> Credentials:
     """Load credentials from a JSON file."""
     with open(path) as f:
         data = json.load(f)
-    if "access-key-id" not in data or "secret-access-key" not in data:
+    try:
+        return LoadedCredentials.model_validate(data)
+    except ValidationError as e:
         raise StartupError(
-            f"Credentials file {path} must contain 'access-key-id' and 'secret-access-key'"
-        )
-    result = {
-        "access-key-id": data["access-key-id"],
-        "secret-access-key": data["secret-access-key"],
-    }
-    if "session-token" in data:
-        result["session-token"] = data["session-token"]
-    return result
+            f"Credentials file {path} must contain 'access-key-id' and "
+            f"'secret-access-key': {e}"
+        ) from e
 
 
-def load_credentials_from_command(command: str) -> dict:
+def load_credentials_from_command(command: str) -> Credentials:
     """Execute a command and parse its JSON output for credentials."""
     args = shlex.split(command)
     result = subprocess.run(args, capture_output=True, text=True, timeout=30)
@@ -50,36 +48,31 @@ def load_credentials_from_command(command: str) -> dict:
         data = json.loads(result.stdout)
     except json.JSONDecodeError as e:
         raise StartupError(f"Credentials command output is not valid JSON: {e}")
-    if "access-key-id" not in data or "secret-access-key" not in data:
+    try:
+        return LoadedCredentials.model_validate(data)
+    except ValidationError as e:
         raise StartupError(
-            "Credentials command output must contain 'access-key-id' and 'secret-access-key'"
-        )
-    creds = {
-        "access-key-id": data["access-key-id"],
-        "secret-access-key": data["secret-access-key"],
-    }
-    if "session-token" in data:
-        creds["session-token"] = data["session-token"]
-    return creds
+            "Credentials command output must contain 'access-key-id' and "
+            f"'secret-access-key': {e}"
+        ) from e
 
 
-def get_dynamic_credentials(plugin_config: dict) -> dict | None:
+def get_dynamic_credentials(config: LitestreamConfig) -> Credentials | None:
     """Get credentials from file or command if configured."""
-    credentials_file = plugin_config.get("credentials-file")
-    credentials_command = plugin_config.get("credentials-command")
-
-    if credentials_file:
-        return load_credentials_from_file(credentials_file)
-    elif credentials_command:
-        return load_credentials_from_command(credentials_command)
+    if config.credentials_file:
+        return load_credentials_from_file(config.credentials_file)
+    elif config.credentials_command:
+        return load_credentials_from_command(config.credentials_command)
     return None
 
 
-def credentials_hash(creds: dict | None) -> str:
+def credentials_hash(creds: Credentials | None) -> str:
     """Return a hash string for comparing credentials."""
     if creds is None:
         return ""
-    return json.dumps(creds, sort_keys=True)
+    return json.dumps(
+        creds.model_dump(by_alias=True, exclude_none=True), sort_keys=True
+    )
 
 
 REDACTED_KEYS = {"secret-access-key", "session-token"}
@@ -96,8 +89,8 @@ def redact_credentials(config: dict) -> dict:
     return redacted
 
 
-def credentials_env(creds: dict | None) -> dict:
-    """Translate a credentials dict into AWS_* environment variables.
+def credentials_env(creds: Credentials | None) -> dict:
+    """Translate credentials into AWS_* environment variables.
 
     litestream >= 0.5 picks up S3 credentials from the daemon's environment when
     a database is registered with an ``s3://`` replica URL, so we always pass
@@ -105,15 +98,15 @@ def credentials_env(creds: dict | None) -> dict:
     the AWS_* names directly (not LITESTREAM_*) so they take effect regardless of
     litestream's env-precedence rules, and so session tokens work consistently.
     """
-    if not creds:
+    if creds is None:
         return {}
     env = {}
-    if "access-key-id" in creds:
-        env["AWS_ACCESS_KEY_ID"] = creds["access-key-id"]
-    if "secret-access-key" in creds:
-        env["AWS_SECRET_ACCESS_KEY"] = creds["secret-access-key"]
-    if "session-token" in creds:
-        env["AWS_SESSION_TOKEN"] = creds["session-token"]
+    if creds.access_key_id is not None:
+        env["AWS_ACCESS_KEY_ID"] = creds.access_key_id
+    if creds.secret_access_key is not None:
+        env["AWS_SECRET_ACCESS_KEY"] = creds.secret_access_key
+    if creds.session_token is not None:
+        env["AWS_SESSION_TOKEN"] = creds.session_token
     return env
 
 
@@ -158,7 +151,8 @@ class LitestreamProcess:
         self.daemon_config = None
         # Metrics/pprof bind address, if configured.
         self.metrics_addr = None
-        # Credentials and a hash for change detection.
+        # Credentials (a config.Credentials or None) and a hash for change
+        # detection.
         self.credentials = None
         self.current_credentials_hash = None
         # path (str) -> replica_url for every database we have registered.
@@ -309,11 +303,11 @@ class LitestreamProcess:
 
     # --- Credential rotation ---------------------------------------------
 
-    def update_credentials(self, new_creds: dict):
+    def update_credentials(self, new_creds: Credentials):
         self.credentials = new_creds
         self.current_credentials_hash = credentials_hash(new_creds)
 
-    def restart_with_new_credentials(self, new_creds: dict):
+    def restart_with_new_credentials(self, new_creds: Credentials):
         """Restart the daemon with new credentials and re-register databases.
 
         Credentials reach litestream through the daemon's environment, which a
