@@ -20,7 +20,7 @@
     onunregister: (db: string) => void;
   } = $props();
 
-  function isStopped(status: string | null): boolean {
+  function isStopped(status: string | null | undefined): boolean {
     return (status ?? "").toLowerCase().includes("stop");
   }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PageData, Status, ActionResult } from "./lib/types";
-  import * as api from "./lib/api";
+  import { client } from "./lib/client";
   import DaemonCard from "./lib/DaemonCard.svelte";
   import DatabaseTable from "./lib/DatabaseTable.svelte";
   import AddDatabase from "./lib/AddDatabase.svelte";
@@ -21,7 +21,12 @@
 
   async function refresh() {
     try {
-      status = await api.getStatus();
+      const { data, response } = await client.GET("/-/litestream/api/status");
+      if (data === undefined) {
+        loadError = `HTTP ${response.status}`;
+        return;
+      }
+      status = data;
       loadError = null;
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
@@ -34,15 +39,25 @@
     return () => clearInterval(id);
   });
 
-  async function run(database: string, fn: () => Promise<ActionResult>) {
+  // Non-2xx responses carry the API's {ok: false, error} body in `error`;
+  // Pydantic validation failures carry {error, errors} with no `ok` field.
+  async function run(
+    database: string,
+    fn: () => Promise<{
+      data?: ActionResult;
+      error?: unknown;
+      response: Response;
+    }>,
+  ) {
     busy = database;
     notice = null;
     try {
-      const result = await fn();
-      if (!result.ok) {
-        notice = `Error: ${result.error ?? "request failed"}`;
+      const { data, error, response } = await fn();
+      if (data?.ok) {
+        notice = `${database}: ${data.status ?? "ok"}`;
       } else {
-        notice = `${database}: ${result.status ?? "ok"}`;
+        const err = (error ?? {}) as { error?: string };
+        notice = `Error: ${data?.error ?? err.error ?? `HTTP ${response.status}`}`;
       }
     } catch (e) {
       notice = `Error: ${e instanceof Error ? e.message : String(e)}`;
@@ -52,12 +67,28 @@
     }
   }
 
-  const onsync = (db: string) => run(db, () => api.syncDatabase(db));
-  const onstop = (db: string) => run(db, () => api.stopDatabase(db));
-  const onstart = (db: string) => run(db, () => api.startDatabase(db));
-  const onunregister = (db: string) => run(db, () => api.unregisterDatabase(db));
+  const onsync = (db: string) =>
+    run(db, () =>
+      client.POST("/-/litestream/api/sync", { body: { database: db } }),
+    );
+  const onstop = (db: string) =>
+    run(db, () =>
+      client.POST("/-/litestream/api/stop", { body: { database: db } }),
+    );
+  const onstart = (db: string) =>
+    run(db, () =>
+      client.POST("/-/litestream/api/start", { body: { database: db } }),
+    );
+  const onunregister = (db: string) =>
+    run(db, () =>
+      client.POST("/-/litestream/unregister", { body: { database: db } }),
+    );
   const onregister = (db: string, replica: string) =>
-    run(db, () => api.registerDatabase(db, replica));
+    run(db, () =>
+      client.POST("/-/litestream/register", {
+        body: replica ? { database: db, replica } : { database: db },
+      }),
+    );
 </script>
 
 <div class="ls-app">

@@ -22,6 +22,22 @@ frontend *flags:
 frontend-dev *flags:
   npm run dev --prefix frontend -- --port {{vite_port}} {{flags}}
 
+# Regenerate frontend/api.d.ts from the Python router's OpenAPI document.
+# Run after route signature changes.
+types-routes:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  tmp=$(mktemp)
+  trap "rm -f $tmp" EXIT
+  uv run python -c \
+      'from datasette_litestream.router import router; import datasette_litestream.routes; import json; print(json.dumps(router.openapi_document_json()))' \
+      > "$tmp"
+  # --default-non-nullable=false: pydantic gives every Optional field a
+  # default of null, and some endpoints omit those keys entirely (e.g. the
+  # not-running status is just {"running": false}), so defaulted fields must
+  # stay optional in the generated types.
+  npx --prefix frontend openapi-typescript "$tmp" --default-non-nullable=false > frontend/api.d.ts
+
 # Type-check the frontend
 check-frontend:
   npm run check --prefix frontend

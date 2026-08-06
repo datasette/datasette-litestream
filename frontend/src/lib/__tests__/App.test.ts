@@ -33,13 +33,15 @@ function statusPayload(overrides: Partial<Status> = {}): Status {
 }
 
 function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
-  return vi.fn(async (input: string, init?: RequestInit) => {
-    const body = handler(String(input), init);
-    return {
-      ok: true,
+  // The generated API client calls fetch with a Request object and reads the
+  // Content-Type header when parsing, so return a real Response.
+  return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    const body = handler(url, init);
+    return new Response(JSON.stringify(body), {
       status: 200,
-      json: async () => body,
-    } as Response;
+      headers: { "Content-Type": "application/json" },
+    });
   });
 }
 

@@ -1,48 +1,22 @@
-// Shapes returned by the datasette-litestream backend JSON API. These mirror
-// the payloads built in datasette_litestream/__init__.py (_build_status etc.).
+// Shapes of the datasette-litestream JSON API, aliased from the generated
+// frontend/api.d.ts (regenerate with `just types-routes`). The Python models
+// in datasette_litestream/_models.py are the source of truth.
 
-export interface DaemonInfo {
-  version: string;
-  pid: number;
-  uptime_seconds: number;
-  started_at: string;
-  database_count: number;
-}
+import type { components, paths } from "../../api.d.ts";
 
-export interface ManagedDatabase {
-  database: string | null; // Datasette database name, if attached
-  path: string;
-  status: string | null; // e.g. "replicating"
-  last_sync_at: string | null;
-  replica: string | null;
-}
+export type DaemonInfo = components["schemas"]["DaemonInfo"];
+export type ManagedDatabase = components["schemas"]["ManagedDatabase"];
+export type AvailableDatabase = components["schemas"]["AvailableDatabase"];
 
-export interface AvailableDatabase {
-  database: string;
-  path: string;
-  suggested_replica: string | null;
-}
+// Status and ActionResult are inlined into the operations (only nested models
+// land in components.schemas), so alias them off the paths they come from.
+export type Status =
+  paths["/-/litestream/api/status"]["get"]["responses"]["200"]["content"]["application/json"];
+export type ActionResult =
+  paths["/-/litestream/api/sync"]["post"]["responses"]["200"]["content"]["application/json"];
 
-export interface Status {
-  running: boolean;
-  can_manage?: boolean;
-  metrics_enabled?: boolean;
-  daemon?: DaemonInfo | null;
-  socket_error?: string | null;
-  databases?: ManagedDatabase[];
-  available?: AvailableDatabase[];
-  warnings?: string[];
-}
-
-export interface ActionResult {
-  ok: boolean;
-  error?: string;
-  details?: string | null;
-  database?: string;
-  status?: string;
-  result?: unknown;
-}
-
+// Inline page data embedded by the litestream_admin.html template (not part
+// of the JSON API, so not generated).
 export interface PageData {
   can_manage: boolean;
   actor: Record<string, unknown> | null;

@@ -8,12 +8,8 @@ import sqlite_utils
 from pathlib import Path
 import time
 
-from datasette_litestream import (
-    processes,
-    DATASETTE_LITESTREAM_PROCESS_KEY,
-    resolve_replica_url,
-    vite_entry,
-)
+from datasette_litestream.process import processes, DATASETTE_LITESTREAM_PROCESS_KEY
+from datasette_litestream._vite import vite_entry
 
 actor_root = {"a": {"id": "root"}}
 

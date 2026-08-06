@@ -5,7 +5,12 @@ description = "Datasette plugin for continuously backing up SQLite databases wit
 readme = "README.md"
 authors = [{name = "Alex Garcia"}]
 license = "Apache-2.0"
-dependencies = ["datasette>=1.0a20", "httpx", "prometheus-client"]
+dependencies = [
+    "datasette>=1.0a20",
+    "datasette-plugin-router>=0.0.1a6",
+    "httpx",
+    "prometheus-client",
+]
 requires-python = ">=3.10"
 
 [project.urls]

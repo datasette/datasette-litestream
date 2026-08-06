@@ -2,7 +2,7 @@ import os
 import shutil
 import pytest
 
-from datasette_litestream import processes
+from datasette_litestream.process import processes
 
 
 def litestream_binary_path():

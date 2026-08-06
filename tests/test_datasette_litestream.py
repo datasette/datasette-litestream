@@ -7,17 +7,19 @@ from pathlib import Path
 import json
 import time
 
-from datasette_litestream import (
+from datasette_litestream.process import (
     load_credentials_from_file,
     load_credentials_from_command,
     get_dynamic_credentials,
     credentials_hash,
     credentials_env,
     redact_credentials,
-    expand_replica_template,
-    resolve_replica_url,
     processes,
     DATASETTE_LITESTREAM_PROCESS_KEY,
+)
+from datasette_litestream.replicas import (
+    expand_replica_template,
+    resolve_replica_url,
 )
 
 actor_root = {"a": {"id": "root"}}
@@ -55,7 +57,7 @@ def replica_has_data(backup_dir) -> bool:
 
 
 async def root_token(datasette) -> dict:
-    """Authorization header for a root bearer token (bypasses CSRF for POSTs)."""
+    """Authorization header for a root bearer token."""
     token = await datasette.create_token("root")
     return {"Authorization": f"Bearer {token}"}
 
