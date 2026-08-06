@@ -8,6 +8,11 @@
 #   just frontend-dev    # terminal 1: Vite HMR
 #   just dev-with-hmr    # terminal 2: Datasette pointed at the Vite dev server
 
+# Expose recipe arguments as "$@" so values like the all-replicate template
+# (file:///...$DB_NAME) survive dev-with-hmr's watchexec/just layers without
+# re-quoting.
+set positional-arguments
+
 ds_port := "8002"
 vite_port := "5180"
 litestream_version := "0.5.12"
@@ -107,16 +112,14 @@ dev *flags: demo-db litestream-bin
   DATASETTE_LITESTREAM_BINARY={{justfile_directory()}}/.bin/litestream \
   uv run datasette \
     --root \
-    demo/demo.db \
-    -c demo/datasette.yml \
     -p {{ds_port}} \
     -s permissions.litestream-view-status true \
     -s permissions.litestream-manage true \
-    {{flags}}
+    "$@"
 
 # Run Datasette pointed at the Vite dev server for live admin-UI development
 # with hot-module reload. Start `just frontend-dev` in another terminal first.
 # Datasette auto-restarts on Python/HTML changes (needs watchexec).
 dev-with-hmr *flags: demo-db
-  watchexec --stop-signal SIGKILL -e py,html --ignore '*.db' --restart --clear -- \
-    just dev -s plugins.datasette-vite.dev_ports.datasette_litestream {{vite_port}} {{flags}}
+  watchexec --stop-signal SIGKILL -e py,html --ignore '*.db' --restart --clear --shell=none -- \
+    just dev -s plugins.datasette-vite.dev_ports.datasette_litestream {{vite_port}} "$@"
