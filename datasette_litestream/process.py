@@ -13,6 +13,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -171,11 +172,20 @@ class LitestreamProcess:
         # atexit handler (stored so we can unregister it) and refresh task.
         self._atexit_handler = None
         self._refresh_task = None
+        # Serializes daemon lifecycle changes and runtime (un)registration,
+        # so a credential-rotation restart cannot race the manage API and
+        # silently drop entries from ``registered``. A plain Lock (not RLock):
+        # the ``*_locked`` helpers must never call the public methods.
+        self._lock = threading.Lock()
 
     # --- Daemon lifecycle -------------------------------------------------
 
     def start_daemon(self):
         """Start the litestream daemon with the control socket enabled."""
+        with self._lock:
+            self._start_daemon_locked()
+
+    def _start_daemon_locked(self):
         litestream_path = resolve_litestream_path()
 
         self.socket_dir = tempfile.mkdtemp(prefix="datasette-litestream-")
@@ -260,6 +270,10 @@ class LitestreamProcess:
 
     def stop_daemon(self):
         """Gracefully stop the litestream daemon and clean up temp files."""
+        with self._lock:
+            self._stop_daemon_locked()
+
+    def _stop_daemon_locked(self):
         if self._atexit_handler:
             atexit.unregister(self._atexit_handler)
             self._atexit_handler = None
@@ -298,17 +312,19 @@ class LitestreamProcess:
 
     def register_db(self, db_path: str, replica_url: str) -> dict:
         """Register a database for replication over the control socket."""
-        result = self._require_client().register(db_path, replica_url)
-        self.registered[str(db_path)] = replica_url
-        return result
+        with self._lock:
+            result = self._require_client().register(db_path, replica_url)
+            self.registered[str(db_path)] = replica_url
+            return result
 
     def unregister_db(self, db_path: str, timeout=None) -> dict:
         """Unregister a database; the daemon performs a final sync first."""
-        result = self._require_client().unregister(db_path, timeout=timeout)
-        self.registered.pop(str(db_path), None)
-        return result
+        with self._lock:
+            result = self._require_client().unregister(db_path, timeout=timeout)
+            self.registered.pop(str(db_path), None)
+            return result
 
-    def reregister_all(self):
+    def _reregister_all_locked(self):
         """Re-register every known database (used after a daemon restart)."""
         client = self._require_client()
         for db_path, replica_url in list(self.registered.items()):
@@ -326,13 +342,18 @@ class LitestreamProcess:
         Credentials reach litestream through the daemon's environment, which a
         running process can't change, so a rotation requires a restart. We
         preserve the set of replicated databases by re-registering them.
+
+        The lock is held for the whole stop→start→re-register sequence, so a
+        concurrent register/unregister blocks until the new daemon is live and
+        then lands on it, instead of racing the snapshot and being lost.
         """
-        registered = dict(self.registered)
-        self.stop_daemon()
-        self.update_credentials(new_creds)
-        self.start_daemon()
-        self.registered = registered
-        self.reregister_all()
+        with self._lock:
+            registered = dict(self.registered)
+            self._stop_daemon_locked()
+            self.update_credentials(new_creds)
+            self._start_daemon_locked()
+            self.registered = registered
+            self._reregister_all_locked()
 
 
 # global variable that tracks each datasette-litestream instance. There is usually just 1,

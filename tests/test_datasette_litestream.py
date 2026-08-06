@@ -2,7 +2,9 @@ import asyncio
 import contextlib
 import json
 import subprocess
+import threading
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pytest
@@ -15,6 +17,7 @@ from pydantic import ValidationError
 
 import datasette_litestream.process
 from datasette_litestream import credential_refresh_loop
+from datasette_litestream._client import LitestreamClient
 from datasette_litestream.config import (
     Credentials,
     DatabaseConfig,
@@ -947,6 +950,135 @@ async def test_refresh_loop_restarts_downed_daemon(tmpdir, refresh_loop_process)
     assert alive
     assert restarts
     assert restarts[0].access_key_id == "AKIASAME"
+
+
+# ---------------------------------------------------------------------------
+# Rotation vs. manage-API races
+# ---------------------------------------------------------------------------
+
+
+class FakeClient:
+    def register(self, path, url):
+        return {"status": "registered"}
+
+    def unregister(self, path, timeout=None):
+        return {"status": "unregistered"}
+
+
+@pytest.fixture
+def rotation_race(monkeypatch):
+    """A LitestreamProcess mid-restart: the restart thread is parked inside
+    stop_daemon until ``release_restart`` is set."""
+    proc = LitestreamProcess()
+    proc.client = cast(LitestreamClient, FakeClient())
+
+    in_restart = threading.Event()
+    release_restart = threading.Event()
+
+    def fake_stop():
+        in_restart.set()
+        release_restart.wait(5)
+        proc.client = None
+
+    def fake_start():
+        proc.client = cast(LitestreamClient, FakeClient())
+
+    monkeypatch.setattr(proc, "_stop_daemon_locked", fake_stop)
+    monkeypatch.setattr(proc, "_start_daemon_locked", fake_start)
+
+    restart_thread = threading.Thread(
+        target=proc.restart_with_new_credentials, args=(None,)
+    )
+    yield proc, in_restart, release_restart, restart_thread
+    release_restart.set()
+    restart_thread.join(5)
+
+
+def test_register_during_rotation_is_kept(rotation_race):
+    proc, in_restart, release_restart, restart_thread = rotation_race
+    proc.registered = {"/tmp/a.db": "file:///tmp/a-replica"}
+
+    restart_thread.start()
+    assert in_restart.wait(5)
+
+    # A concurrent register blocks on the lock until the restart finishes,
+    # then lands on the new daemon instead of being clobbered by the
+    # restart's snapshot of ``registered``.
+    register_thread = threading.Thread(
+        target=proc.register_db, args=("/tmp/b.db", "file:///tmp/b-replica")
+    )
+    register_thread.start()
+    release_restart.set()
+    restart_thread.join(5)
+    register_thread.join(5)
+    assert not restart_thread.is_alive()
+    assert not register_thread.is_alive()
+
+    assert proc.registered == {
+        "/tmp/a.db": "file:///tmp/a-replica",
+        "/tmp/b.db": "file:///tmp/b-replica",
+    }
+
+
+def test_unregister_during_rotation_stays_gone(rotation_race):
+    proc, in_restart, release_restart, restart_thread = rotation_race
+    proc.registered = {
+        "/tmp/a.db": "file:///tmp/a-replica",
+        "/tmp/b.db": "file:///tmp/b-replica",
+    }
+
+    restart_thread.start()
+    assert in_restart.wait(5)
+
+    unregister_thread = threading.Thread(target=proc.unregister_db, args=("/tmp/b.db",))
+    unregister_thread.start()
+    release_restart.set()
+    restart_thread.join(5)
+    unregister_thread.join(5)
+    assert not restart_thread.is_alive()
+    assert not unregister_thread.is_alive()
+
+    assert proc.registered == {"/tmp/a.db": "file:///tmp/a-replica"}
+
+
+@pytest.mark.asyncio
+async def test_register_during_rotation_integration(litestream_binary, tmpdir):
+    """A register racing a real credential-rotation restart ends up on the
+    live daemon along with the startup-registered database."""
+    data_path = str(tmpdir / "data.db")
+    extra_path = str(tmpdir / "extra.db")
+    table(data_path, "t").insert({"v": 1})
+    table(extra_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    datasette = Datasette(
+        [data_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                }
+            }
+        },
+    )
+    await datasette.invoke_startup()
+    proc = processes[getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)]
+
+    resolved_data = str(Path(data_path).resolve())
+    resolved_extra = str(Path(extra_path).resolve())
+    await asyncio.gather(
+        asyncio.to_thread(proc.restart_with_new_credentials, None),
+        asyncio.to_thread(
+            proc.register_db, resolved_extra, "file://" + str(backups) + "/extra"
+        ),
+    )
+
+    assert proc.client is not None
+    listed = {db["path"] for db in proc.client.list_databases()}
+    assert resolved_data in listed
+    assert resolved_extra in listed
+    assert resolved_extra in proc.registered
+    assert resolved_data in proc.registered
 
 
 # ---------------------------------------------------------------------------
