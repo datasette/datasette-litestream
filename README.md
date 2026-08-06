@@ -80,7 +80,7 @@ The following are valid keys that are allowed when specifying top-level plugin c
 - `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `replica-template` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given address. This endpoint is **unauthenticated** and also serves Go's `/debug/pprof` handlers, and an address without a host part (like `:9090`) listens on **all interfaces** — bind it to loopback (`127.0.0.1:9090`) or firewall it in production. The plugin prints a startup warning (also shown on the admin page) for all-interfaces binds.
 - `restrict-runtime-replicas`: When `true`, the runtime register API only accepts the replica URL derived from configuration (a database-level `replica` or the `replica-template` template) — caller-supplied URLs that differ are rejected. Defaults to `false`. See the permissions note under [Admin UI](#admin-ui).
-- `logging`: Controls the Litestream daemon's logging. Litestream's log output is always captured to a log file (shown on the admin page) instead of being interleaved with Datasette's console output. Sub-keys:
+- `logging`: Controls the Litestream daemon's logging. Litestream's log output is always captured to a log file (shown on the admin page) instead of being interleaved with Datasette's console output. The sub-keys deliberately mirror [Litestream's own `logging:` config block](https://litestream.io/reference/config/#logging) (which is why the format key is `type`, not `format`):
   - `logging.level`: One of `debug`, `info`, `warn`, `error`. Defaults to `info`.
   - `logging.type`: Log format, `text` or `json`. Defaults to `text`.
   - `logging.path`: Write logs to this file (opened in append mode) instead of a session-scoped temporary file. Useful for long-lived deployments where you want the logs somewhere durable (and rotatable).
@@ -190,7 +190,7 @@ Credentials are passed to Litestream through the daemon's environment (as
 
 The following option is allowed on database-level plugin configuration.
 
-- `replica`: the single replica URL for this database (e.g. `s3://...` or `file://...`).
+- `replica`: the single replica URL for this database (e.g. `s3://...` or `file://...`). The `$DB_NAME` / `$DB_DIRECTORY` / `$PWD` variables described under [Replicate all databases](#replicate-all-databases) work here too.
 
 ```yaml
 databases:
