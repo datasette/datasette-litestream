@@ -9,24 +9,35 @@ permissions:
 
 jobs:
   test:
-    if: false
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v6
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
       - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Download litestream (checksum-verified)
+        run: |
+          asset="litestream-0.5.12-linux-x86_64.tar.gz"
+          curl -fLO "https://github.com/benbjohnson/litestream/releases/download/v0.5.12/${asset}"
+          echo "$(./download.sh sha256-for "${asset}")  ${asset}" | shasum -a 256 -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "${asset}" -C "$HOME/.local/bin" litestream
+          echo "LITESTREAM_TEST_BINARY=$HOME/.local/bin/litestream" >> "$GITHUB_ENV"
+      - name: Build frontend
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build
       - name: Run tests
         run: |
           uv run python -m pytest
   deploy:
     runs-on: ubuntu-latest
-    #needs: [test]
+    needs: [test]
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python

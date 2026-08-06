@@ -99,8 +99,11 @@ litestream-bin:
   if [ ! -x .bin/litestream ]; then
     mkdir -p .bin
     os=$(uname -s | tr '[:upper:]' '[:lower:]')
-    curl -fsSL "https://github.com/benbjohnson/litestream/releases/download/v{{litestream_version}}/litestream-{{litestream_version}}-${os}-$(uname -m).tar.gz" \
-      | tar -xz -C .bin litestream
+    asset="litestream-{{litestream_version}}-${os}-$(uname -m).tar.gz"
+    curl -fsSLO "https://github.com/benbjohnson/litestream/releases/download/v{{litestream_version}}/${asset}"
+    echo "$(./download.sh sha256-for "${asset}")  ${asset}" | shasum -a 256 -c -
+    tar -xzf "${asset}" -C .bin litestream
+    rm "${asset}"
     echo "downloaded litestream {{litestream_version}} to .bin/litestream"
   fi
 

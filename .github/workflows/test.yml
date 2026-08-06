@@ -28,7 +28,11 @@ jobs:
           key: ${{ runner.os }}-litestream-0.5.12
       - run: mkdir -p $HOME/.local/bin
       - if: steps.cache-litestream.outputs.cache-hit != 'true'
-        run: curl -L https://github.com/benbjohnson/litestream/releases/download/v0.5.12/litestream-0.5.12-linux-x86_64.tar.gz | tar -xz -C $HOME/.local/bin litestream
+        run: |
+          asset="litestream-0.5.12-linux-x86_64.tar.gz"
+          curl -fLO "https://github.com/benbjohnson/litestream/releases/download/v0.5.12/${asset}"
+          echo "$(./download.sh sha256-for "${asset}")  ${asset}" | shasum -a 256 -c -
+          tar -xzf "${asset}" -C $HOME/.local/bin litestream
       - run: echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Build frontend
         run: |
