@@ -162,6 +162,18 @@ def startup(datasette):
     all_replicate = config.all_replicate
     warnings = []
 
+    # litestream's metrics server is unauthenticated and also mounts Go's
+    # /debug/pprof handlers; warn when it would listen on all interfaces.
+    if config.metrics_addr:
+        metrics_host = config.metrics_addr.rpartition(":")[0]
+        if metrics_host in ("", "0.0.0.0", "[::]", "::"):
+            warnings.append(
+                f"'metrics-addr' {config.metrics_addr!r} listens on all "
+                "interfaces with no authentication (Prometheus metrics and Go "
+                "pprof endpoints) — bind it to loopback, e.g. "
+                "'127.0.0.1:9090', unless it is firewalled."
+            )
+
     # Work out which databases to replicate at startup.
     initial = []  # list of (db_name, db_path_str, replica_url)
     for db_name, db in datasette.databases.items():

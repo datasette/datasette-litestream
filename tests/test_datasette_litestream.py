@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
 import json
+import os
 import sqlite3
+import stat
 import subprocess
 import threading
 from pathlib import Path
@@ -1662,6 +1664,60 @@ def test_interpreter_exit_integration(litestream_binary):
     assert proc.process is None
     assert not Path(config_path).exists()
     assert not Path(socket_dir).exists()
+
+
+# ---------------------------------------------------------------------------
+# Log file permissions and metrics-addr exposure warnings
+# ---------------------------------------------------------------------------
+
+
+def test_log_file_created_0600(tmp_path):
+    log_path = tmp_path / "litestream.log"
+    proc = LitestreamProcess(logging_config=LoggingConfig(path=str(log_path)))
+    assert stat.S_IMODE(os.stat(log_path).st_mode) == 0o600
+    proc.logfile.close()
+
+
+def test_log_file_keeps_existing_permissions(tmp_path):
+    log_path = tmp_path / "litestream.log"
+    log_path.touch()
+    os.chmod(log_path, 0o644)
+    proc = LitestreamProcess(logging_config=LoggingConfig(path=str(log_path)))
+    assert stat.S_IMODE(os.stat(log_path).st_mode) == 0o644
+    proc.logfile.close()
+
+
+def _metrics_config(students_backup, metrics_addr):
+    return {
+        "plugins": {"datasette-litestream": {"metrics-addr": metrics_addr}},
+        "databases": {
+            "students": {
+                "plugins": {
+                    "datasette-litestream": {"replica": file_replica(students_backup)}
+                }
+            }
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_metrics_addr_all_interfaces_warns(litestream_binary, students_db_path):
+    backup_dir = str(Path(students_db_path).parents[0] / "students-backup")
+    datasette = Datasette([students_db_path], config=_metrics_config(backup_dir, ":0"))
+    await datasette.invoke_startup()
+    proc = processes[getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)]
+    assert any("metrics-addr" in w for w in proc.warnings)
+
+
+@pytest.mark.asyncio
+async def test_metrics_addr_loopback_no_warning(litestream_binary, students_db_path):
+    backup_dir = str(Path(students_db_path).parents[0] / "students-backup")
+    datasette = Datasette(
+        [students_db_path], config=_metrics_config(backup_dir, "127.0.0.1:0")
+    )
+    await datasette.invoke_startup()
+    proc = processes[getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)]
+    assert not any("metrics-addr" in w for w in proc.warnings)
 
 
 # ---------------------------------------------------------------------------

@@ -62,7 +62,8 @@ class LoggingConfig(BaseModel):
     level: Literal["debug", "info", "warn", "error"] = "info"
     type: Literal["text", "json"] = "text"
     # Where litestream's log output is written (opened in append mode).
-    # None = a session-scoped temp file.
+    # None = a session-scoped temp file. Created with 0600 permissions; a
+    # pre-existing file keeps whatever permissions the operator gave it.
     path: str | None = None
 
 

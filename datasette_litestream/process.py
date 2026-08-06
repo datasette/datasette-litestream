@@ -164,7 +164,13 @@ class LitestreamProcess:
         # Popen as stderr.
         if self.logging.path:
             try:
-                self.logfile = open(self.logging.path, "ab")  # noqa: SIM115
+                # Created 0600: the daemon's stderr carries replica URLs and
+                # request detail that other local users shouldn't read by
+                # default. A pre-existing file keeps its permissions.
+                fd = os.open(
+                    self.logging.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600
+                )
+                self.logfile = os.fdopen(fd, "ab")
             except OSError as e:
                 raise StartupError(
                     f"datasette-litestream: cannot open log file "
