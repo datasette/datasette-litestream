@@ -4,6 +4,7 @@ import json
 import subprocess
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import httpx
@@ -1143,6 +1144,124 @@ def test_start_daemon_instant_death_cleans_up(tmp_path, monkeypatch, spy_popen):
     assert proc.socket_dir is not None
     assert not Path(proc.socket_dir).exists()
     assert proc._atexit_handler is None
+
+
+# ---------------------------------------------------------------------------
+# Graceful shutdown at interpreter exit
+# ---------------------------------------------------------------------------
+
+
+class FakeChild:
+    """Popen stand-in that records lifecycle calls."""
+
+    def __init__(self, wedged=False):
+        self.calls = []
+        self._wedged = wedged
+
+    def terminate(self):
+        self.calls.append("terminate")
+
+    def kill(self):
+        self.calls.append("kill")
+
+    def wait(self, timeout=None):
+        self.calls.append("wait")
+        if self._wedged and "kill" not in self.calls:
+            raise subprocess.TimeoutExpired(cmd="litestream", timeout=timeout or 0)
+        return 0
+
+    def poll(self):
+        return None
+
+
+class FakeTask:
+    def __init__(self):
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def _started_state(proc, tmp_path, child):
+    """Give a LitestreamProcess the on-disk state of a started daemon."""
+    socket_dir = tmp_path / "socketdir"
+    socket_dir.mkdir()
+    socket_path = socket_dir / "litestream.sock"
+    socket_path.touch()
+    cfg = tmp_path / "config.yml"
+    cfg.write_text("{}")
+    proc.process = child
+    proc.socket_dir = str(socket_dir)
+    proc.socket_path = str(socket_path)
+    proc.configfile = SimpleNamespace(name=str(cfg))
+    return socket_dir, cfg
+
+
+def test_interpreter_exit_stops_daemon_gracefully(tmp_path):
+    proc = LitestreamProcess()
+    child = FakeChild()
+    socket_dir, cfg = _started_state(proc, tmp_path, child)
+    task = FakeTask()
+    proc._refresh_task = cast(asyncio.Task, task)
+
+    proc._on_interpreter_exit()
+
+    assert child.calls == ["terminate", "wait"]  # SIGTERM only, no SIGKILL
+    assert task.cancelled
+    assert proc.process is None
+    assert not cfg.exists()
+    assert not socket_dir.exists()
+
+
+def test_interpreter_exit_kills_wedged_daemon(tmp_path):
+    proc = LitestreamProcess()
+    child = FakeChild(wedged=True)
+    socket_dir, cfg = _started_state(proc, tmp_path, child)
+
+    proc._on_interpreter_exit(wait_timeout=0.1)
+
+    assert child.calls == ["terminate", "wait", "kill", "wait"]
+    assert proc.process is None
+    assert not cfg.exists()
+    assert not socket_dir.exists()
+
+
+def test_interpreter_exit_hard_kills_when_lock_is_held(tmp_path):
+    """If another thread wedged while holding the lock, exit must still not
+    leave an orphan."""
+    proc = LitestreamProcess()
+    child = FakeChild()
+    _, cfg = _started_state(proc, tmp_path, child)
+
+    proc._lock.acquire()
+    try:
+        proc._on_interpreter_exit(lock_timeout=0.1)
+    finally:
+        proc._lock.release()
+
+    assert child.calls == ["kill"]
+    assert not cfg.exists()
+
+
+def test_interpreter_exit_integration(litestream_binary):
+    """The real daemon exits cleanly on the graceful path (SIGTERM is trapped
+    by litestream, which final-syncs and exits 0) and temp state is removed."""
+    proc = LitestreamProcess()
+    proc.start_daemon()
+    child = proc.process
+    assert child is not None
+    assert proc.configfile is not None
+    assert proc.socket_dir is not None
+    socket_dir = proc.socket_dir
+    config_path = proc.configfile.name
+
+    proc._on_interpreter_exit()
+
+    assert child.poll() is not None
+    assert child.returncode == 0  # clean exit, not SIGKILL (-9) or SIGTERM (-15)
+    assert proc.process is None
+    assert not Path(config_path).exists()
+    assert not Path(socket_dir).exists()
 
 
 # ---------------------------------------------------------------------------

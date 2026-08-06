@@ -1025,6 +1025,52 @@ echo ""
 echo "=========================================="
 echo "EXPECTED RESULT: Backup files created at ./local-backup/test-database/"
 echo "=========================================="
+read "?Did the test pass? Press Enter to continue to the next test..."
+```
+
+---
+
+### Test 15: Graceful Shutdown Final Sync (No AWS Required)
+
+**Purpose:** Verify that stopping Datasette lets litestream perform a final
+sync, so writes that landed just before shutdown reach the replica. The
+plugin's atexit handler sends the daemon SIGTERM (litestream traps it and
+flushes each database to its replica) instead of SIGKILL.
+
+```bash
+rm -rf ./shutdown-backup ./shutdown-restore.db
+export SHUTDOWN_BACKUP_PATH="$(pwd)/shutdown-backup"
+
+echo "Starting Datasette with a file:// replica..."
+(cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
+    -s plugins.datasette-litestream.all-replicate '["file://'"${SHUTDOWN_BACKUP_PATH}"'/$DB_NAME"]' \
+    -p 8015 \
+    --root) &
+export DATASETTE_PID=$!
+sleep 3
+
+echo "Writing a row, then terminating Datasette immediately..."
+sqlite3 ./test-database.db \
+    "INSERT INTO test_data (name, value) VALUES ('shutdown-test', 'written-just-before-exit');"
+kill -TERM $DATASETTE_PID
+wait $DATASETTE_PID 2>/dev/null
+
+echo "Restoring from the replica..."
+litestream restore -o ./shutdown-restore.db \
+    "file://${SHUTDOWN_BACKUP_PATH}/test-database"
+sqlite3 ./shutdown-restore.db \
+    "SELECT name, value FROM test_data WHERE name = 'shutdown-test';"
+
+echo ""
+echo "=========================================="
+echo "EXPECTED RESULT:"
+echo "1. The restored database contains the 'shutdown-test' row written"
+echo "   moments before SIGTERM (the final sync shipped it)."
+echo "2. No /tmp/datasette-litestream-* directories remain:"
+ls -d /tmp/datasette-litestream-* 2>/dev/null || echo "   (none found — pass)"
+echo "3. No stray litestream processes remain:"
+pgrep -fl "litestream replicate" || echo "   (none found — pass)"
+echo "=========================================="
 read "?Did the test pass? Press Enter to continue to cleanup..."
 ```
 
@@ -1117,6 +1163,7 @@ echo "Local cleanup complete!"
 | 12 | Error: Missing credentials file | x |
 | 13 | Error: Both credential sources | x |
 | 14 | Local file backup (no AWS) | x |
+| 15 | Graceful shutdown final sync | ☐ |
 
 ---
 

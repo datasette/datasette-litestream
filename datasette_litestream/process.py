@@ -222,17 +222,12 @@ class LitestreamProcess:
             env=env,
         )
 
-        # Sometimes Popen doesn't die on exit, so explicitly kill it on exit.
+        # Stop the daemon when the interpreter exits (Datasette has no plugin
+        # shutdown hook as of 1.0a32, so atexit is the only exit-time hook).
         # Registered immediately after Popen so the child is covered even if
         # the parent dies while we are still waiting for it to come up.
-        def onexit():
-            if self.process:
-                self.process.kill()
-            if self.configfile and Path(self.configfile.name).exists():
-                Path(self.configfile.name).unlink()
-
-        self._atexit_handler = onexit
-        atexit.register(onexit)
+        self._atexit_handler = self._on_interpreter_exit
+        atexit.register(self._atexit_handler)
 
         try:
             # Wait briefly to catch instant failures (typically config typos).
@@ -277,12 +272,43 @@ class LitestreamProcess:
             f"within {timeout}s"
         )
 
+    def _on_interpreter_exit(
+        self, lock_timeout: float = 5.0, wait_timeout: float = 5.0
+    ):
+        """atexit handler: stop the daemon gracefully at interpreter exit.
+
+        litestream traps SIGTERM and performs a final sync of every database
+        to its replica before exiting, so a graceful stop ships the WAL
+        writes that landed since the last sync interval — a plain SIGKILL
+        would lose them until the next daemon start against the same disk.
+        A shorter wait than stop_daemon's default so a wedged daemon cannot
+        hang interpreter exit for long.
+        """
+        task = self._refresh_task
+        if task is not None:
+            try:
+                task.cancel()
+            except Exception:  # noqa: BLE001, S110 -- best effort at exit
+                pass
+        if self._lock.acquire(timeout=lock_timeout):
+            try:
+                self._stop_daemon_locked(wait_timeout=wait_timeout)
+            finally:
+                self._lock.release()
+        else:
+            # The lock is held by an operation that will never finish (we are
+            # exiting); fall back to a hard kill so no orphan survives.
+            if self.process:
+                self.process.kill()
+            if self.configfile and Path(self.configfile.name).exists():
+                Path(self.configfile.name).unlink(missing_ok=True)
+
     def stop_daemon(self):
         """Gracefully stop the litestream daemon and clean up temp files."""
         with self._lock:
             self._stop_daemon_locked()
 
-    def _stop_daemon_locked(self):
+    def _stop_daemon_locked(self, wait_timeout: float = 10.0):
         if self._atexit_handler:
             atexit.unregister(self._atexit_handler)
             self._atexit_handler = None
@@ -290,7 +316,7 @@ class LitestreamProcess:
         if self.process:
             self.process.terminate()
             try:
-                self.process.wait(timeout=10)
+                self.process.wait(timeout=wait_timeout)
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait()
