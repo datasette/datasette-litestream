@@ -185,6 +185,24 @@ def startup(datasette):
 
         db_path = Path(db.path)
 
+        # litestream opens databases read-write and flips them to WAL journal
+        # mode, which would physically rewrite a file Datasette promised
+        # never to change.
+        if not db.is_mutable:
+            if db_config is not None:
+                raise StartupError(
+                    f"datasette-litestream: database '{db_name}' is immutable but "
+                    "has a datasette-litestream config block. Litestream would "
+                    "rewrite the file (it switches databases to WAL journal "
+                    "mode) — open the database as mutable or remove its "
+                    "datasette-litestream configuration."
+                )
+            if all_replicate is not None:
+                warnings.append(
+                    f"Database '{db_name}' is immutable, so Litestream will not replicate it."
+                )
+            continue
+
         # skip this DB if "all-replicate" was not defined or no db-level config was given
         if db_config is None and all_replicate is None:
             continue

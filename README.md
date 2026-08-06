@@ -62,6 +62,12 @@ This is done with "variables" that `datasette-litestream` replaces in the `all-r
 - `$DB_DIRECTORY`: The full parent directory that the SQLite database resides.
 - `$PWD`: The current working directory of the Datasette process.
 
+Databases attached as immutable (`datasette -i data.db`) are never replicated:
+Litestream opens databases read-write and switches them to WAL journal mode,
+which would modify a file Datasette promises never to change. `all-replicate`
+skips immutable databases with a startup warning, and configuring a `replica`
+directly on an immutable database fails startup with an error.
+
 ## Config
 
 Plugin configuration lives in your `datasette.yml` (passed with `-c`, or via `-s` for individual settings). The plugin generates a minimal Litestream daemon config (control socket plus the optional metrics address) and registers databases with the daemon at runtime.
@@ -227,6 +233,10 @@ curl -X POST http://localhost:8001/-/litestream/register \
   -H "Content-Type: application/json" \
   -d '{"database": "my_database", "replica": "s3://my-bucket/my_database"}'
 ```
+
+Immutable databases cannot be registered: the register route responds with a
+400 error and the admin UI does not offer them (see the note under
+[Replicate all databases](#replicate-all-databases)).
 
 The current set of replicating databases, along with daemon version and uptime,
 is also shown on the admin UI described below.

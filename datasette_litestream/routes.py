@@ -92,10 +92,12 @@ async def _build_status(datasette, litestream_process, can_manage):
         except Exception as e:  # noqa: BLE001 -- best effort, surfaced in the UI
             socket_error = str(e)
 
-    # Attached, file-backed Datasette databases not currently replicating.
+    # Attached, file-backed, mutable Datasette databases not currently
+    # replicating. Immutable ones are excluded: litestream would rewrite
+    # them (WAL journal mode), breaking Datasette's immutability promise.
     available = []
     for db_name, db in datasette.databases.items():
-        if db.path is None:
+        if db.path is None or not db.is_mutable:
             continue
         resolved = str(Path(db.path).resolve())
         if resolved in registered_paths:
@@ -269,6 +271,16 @@ async def litestream_register(
         return Response.json(
             {"ok": False, "error": f"unknown or in-memory database: {db_name}"},
             status=404,
+        )
+
+    # Never hand litestream an immutable database: it would flip the file to
+    # WAL journal mode. (_internal is not in datasette.databases and is
+    # always mutable, so it naturally bypasses this check.)
+    db = datasette.databases.get(db_name)
+    if db is not None and not db.is_mutable:
+        return Response.json(
+            {"ok": False, "error": f"database '{db_name}' is immutable"},
+            status=400,
         )
 
     replica_url = body.replica

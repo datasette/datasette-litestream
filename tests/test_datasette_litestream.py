@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import json
+import sqlite3
 import subprocess
 import threading
 from pathlib import Path
@@ -1174,6 +1175,102 @@ async def test_unregister_detached_database_integration(litestream_binary, tmpdi
     assert not any("extra.db" in p for p in proc.registered)
     assert proc.client is not None
     assert not any("extra.db" in db["path"] for db in proc.client.list_databases())
+
+
+# ---------------------------------------------------------------------------
+# Immutable databases are never replicated
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_all_replicate_skips_immutable_db(litestream_binary, tmpdir):
+    data_path = str(tmpdir / "data.db")
+    ro_path = str(tmpdir / "readonly.db")
+    table(data_path, "t").insert({"v": 1})
+    table(ro_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    datasette = Datasette(
+        [data_path],
+        immutables=[ro_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                }
+            }
+        },
+    )
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+    proc = processes[getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)]
+
+    assert any("data.db" in p for p in proc.registered)
+    assert not any("readonly.db" in p for p in proc.registered)
+    assert any("immutable" in w for w in proc.warnings)
+
+    # The immutable database is not offered for runtime registration either.
+    status = await datasette.client.get(
+        "/-/litestream/api/status",
+        cookies={"ds_actor": datasette.sign(actor_root, "actor")},
+    )
+    payload = status.json()
+    assert "readonly" not in {a["database"] for a in payload["available"]}
+    assert any("immutable" in w for w in payload["warnings"])
+
+    # The file on disk is untouched: journal mode unchanged, no WAL sidecar.
+    with sqlite3.connect(ro_path) as conn:
+        assert conn.execute("pragma journal_mode").fetchone()[0] == "delete"
+    assert not Path(ro_path + "-wal").exists()
+
+
+@pytest.mark.asyncio
+async def test_immutable_db_with_explicit_config_fails_startup(tmpdir):
+    ro_path = str(tmpdir / "readonly.db")
+    table(ro_path, "t").insert({"v": 1})
+    datasette = Datasette(
+        immutables=[ro_path],
+        config={
+            "databases": {
+                "readonly": {
+                    "plugins": {
+                        "datasette-litestream": {
+                            "replica": file_replica(tmpdir / "backup")
+                        }
+                    }
+                }
+            }
+        },
+    )
+    with pytest.raises(StartupError, match="immutable"):
+        await datasette.invoke_startup()
+
+
+@pytest.mark.asyncio
+async def test_register_route_rejects_immutable_db(tmpdir):
+    ro_path = str(tmpdir / "readonly.db")
+    table(ro_path, "t").insert({"v": 1})
+    datasette = Datasette(memory=True)
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+
+    proc = LitestreamProcess()
+    proc.client = cast(LitestreamClient, FakeClient())
+    processes["test-immutable"] = proc
+    setattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, "test-immutable")
+
+    datasette.add_database(
+        Database(datasette, path=ro_path, is_mutable=False), name="ro"
+    )
+    headers = await root_token(datasette)
+    response = await datasette.client.post(
+        "/-/litestream/register",
+        json={"database": "ro", "replica": file_replica(tmpdir / "replica")},
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+    assert "immutable" in response.json()["error"]
+    assert proc.registered == {}
 
 
 # ---------------------------------------------------------------------------
