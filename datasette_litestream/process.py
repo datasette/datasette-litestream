@@ -63,7 +63,7 @@ def load_credentials_from_command(command: str) -> dict:
     return creds
 
 
-def get_dynamic_credentials(plugin_config: dict) -> dict:
+def get_dynamic_credentials(plugin_config: dict) -> dict | None:
     """Get credentials from file or command if configured."""
     credentials_file = plugin_config.get("credentials-file")
     credentials_command = plugin_config.get("credentials-command")
@@ -75,7 +75,7 @@ def get_dynamic_credentials(plugin_config: dict) -> dict:
     return None
 
 
-def credentials_hash(creds: dict) -> str:
+def credentials_hash(creds: dict | None) -> str:
     """Return a hash string for comparing credentials."""
     if creds is None:
         return ""
@@ -96,7 +96,7 @@ def redact_credentials(config: dict) -> dict:
     return redacted
 
 
-def credentials_env(creds: dict) -> dict:
+def credentials_env(creds: dict | None) -> dict:
     """Translate a credentials dict into AWS_* environment variables.
 
     litestream >= 0.5 picks up S3 credentials from the daemon's environment when
@@ -230,6 +230,11 @@ class LitestreamProcess:
 
     def _wait_for_socket(self, timeout=5.0):
         """Block until the control socket file appears (or the process dies)."""
+        # Only called from start_daemon, after these are set.
+        if self.socket_path is None or self.process is None:
+            raise RuntimeError(
+                "datasette-litestream: _wait_for_socket called before start_daemon"
+            )
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if Path(self.socket_path).exists():
@@ -276,22 +281,31 @@ class LitestreamProcess:
 
     # --- Runtime database management -------------------------------------
 
+    def _require_client(self) -> "LitestreamClient":
+        """Return the control socket client, or raise if the daemon is down."""
+        if self.client is None:
+            raise RuntimeError(
+                "datasette-litestream: the litestream daemon is not running"
+            )
+        return self.client
+
     def register_db(self, db_path: str, replica_url: str) -> dict:
         """Register a database for replication over the control socket."""
-        result = self.client.register(db_path, replica_url)
+        result = self._require_client().register(db_path, replica_url)
         self.registered[str(db_path)] = replica_url
         return result
 
     def unregister_db(self, db_path: str, timeout=None) -> dict:
         """Unregister a database; the daemon performs a final sync first."""
-        result = self.client.unregister(db_path, timeout=timeout)
+        result = self._require_client().unregister(db_path, timeout=timeout)
         self.registered.pop(str(db_path), None)
         return result
 
     def reregister_all(self):
         """Re-register every known database (used after a daemon restart)."""
+        client = self._require_client()
         for db_path, replica_url in list(self.registered.items()):
-            self.client.register(db_path, replica_url)
+            client.register(db_path, replica_url)
 
     # --- Credential rotation ---------------------------------------------
 

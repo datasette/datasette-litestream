@@ -235,8 +235,9 @@ def startup(datasette):
     for db_path, replica_url in initial:
         litestream_process.register_db(db_path, replica_url)
 
-    # Schedule credential refresh if using dynamic credentials
-    if uses_dynamic_credentials:
+    # Schedule credential refresh if using dynamic credentials. The interval
+    # is re-checked here (validated non-empty above) to narrow away None.
+    if uses_dynamic_credentials and credentials_refresh_interval:
         litestream_process._refresh_task = asyncio.create_task(
             credential_refresh_loop(
                 startup_id, plugin_config_top, credentials_refresh_interval

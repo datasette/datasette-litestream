@@ -23,7 +23,11 @@ CI = "https://github.com/datasette/datasette-litestream/actions"
 litestream = "datasette_litestream"
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio"]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ty>=0.0.68",
+]
 
 [tool.uv]
 package = true

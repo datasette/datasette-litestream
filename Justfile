@@ -38,9 +38,16 @@ types-routes:
   # stay optional in the generated types.
   npx --prefix frontend openapi-typescript "$tmp" --default-non-nullable=false > frontend/api.d.ts
 
+# Type-check the backend (ty)
+check-backend:
+  uv run ty check datasette_litestream
+
 # Type-check the frontend
 check-frontend:
   npm run check --prefix frontend
+
+# Type-check everything
+check: check-backend check-frontend
 
 # Frontend unit tests (vitest)
 test-frontend:
