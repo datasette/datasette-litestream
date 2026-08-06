@@ -22,6 +22,8 @@ Errors are returned as ``{"error": "...", "details": "..."}`` with a non-2xx
 HTTP status; we surface those as :class:`LitestreamControlError`.
 """
 
+import math
+
 import httpx
 
 
@@ -106,23 +108,26 @@ class LitestreamClient:
         """
         body = {"path": str(path)}
         if timeout is not None:
-            body["timeout"] = int(timeout)
+            # The daemon's timeout fields are Go ints (whole seconds) and 0
+            # means "use the default" — round up so a fractional timeout
+            # waits at least as long as requested instead of collapsing to 0.
+            body["timeout"] = math.ceil(timeout)
         return self._request("POST", "/unregister", json_body=body)
 
     def start(self, path, timeout=None):
         body = {"path": str(path)}
         if timeout is not None:
-            body["timeout"] = int(timeout)
+            body["timeout"] = math.ceil(timeout)
         return self._request("POST", "/start", json_body=body)
 
     def stop(self, path, timeout=None):
         body = {"path": str(path)}
         if timeout is not None:
-            body["timeout"] = int(timeout)
+            body["timeout"] = math.ceil(timeout)
         return self._request("POST", "/stop", json_body=body)
 
     def sync(self, path, wait=False, timeout=None):
         body = {"path": str(path), "wait": bool(wait)}
         if timeout is not None:
-            body["timeout"] = int(timeout)
+            body["timeout"] = math.ceil(timeout)
         return self._request("POST", "/sync", json_body=body)

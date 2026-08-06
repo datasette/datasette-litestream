@@ -8,7 +8,7 @@ frontend TypeScript types (frontend/api.d.ts) are generated from.
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # --- Request bodies ---------------------------------------------------------
 
@@ -31,8 +31,9 @@ class UnregisterBody(BaseModel):
     """Body for /-/litestream/unregister."""
 
     database: str
-    # Seconds to wait for the daemon's final sync before giving up.
-    timeout: float | None = None
+    # Seconds to wait for the daemon's final sync before giving up. The daemon
+    # takes whole seconds; fractional values are rounded up on the wire.
+    timeout: float | None = Field(default=None, ge=0)
 
 
 # --- Response payloads ------------------------------------------------------

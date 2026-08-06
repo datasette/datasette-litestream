@@ -1178,6 +1178,27 @@ async def test_unregister_detached_database_integration(litestream_binary, tmpdi
     assert not any("extra.db" in db["path"] for db in proc.client.list_databases())
 
 
+def test_client_rounds_fractional_timeouts_up(monkeypatch):
+    """The daemon's timeout fields are integer seconds where 0 means "use the
+    default", so 0.5 must become 1 on the wire, never 0."""
+    client = LitestreamClient("/tmp/nonexistent.sock")
+    captured = {}
+
+    def fake_request(method, path, *, json_body=None, params=None):
+        captured[path] = json_body
+        return {}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    client.unregister("/x", timeout=0.5)
+    client.start("/x", timeout=1.2)
+    client.stop("/x", timeout=2)
+    client.sync("/x", wait=True, timeout=0.1)
+    assert captured["/unregister"]["timeout"] == 1
+    assert captured["/start"]["timeout"] == 2
+    assert captured["/stop"]["timeout"] == 2
+    assert captured["/sync"]["timeout"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Daemon-down error mapping
 # ---------------------------------------------------------------------------
