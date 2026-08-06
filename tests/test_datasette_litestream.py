@@ -1082,6 +1082,70 @@ async def test_register_during_rotation_integration(litestream_binary, tmpdir):
 
 
 # ---------------------------------------------------------------------------
+# Daemon startup failure cleanup
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def spy_popen(monkeypatch):
+    """Record every subprocess spawned by the process module."""
+    spawned = []
+    real_popen = subprocess.Popen
+
+    def wrapper(*args, **kwargs):
+        p = real_popen(*args, **kwargs)
+        spawned.append(p)
+        return p
+
+    monkeypatch.setattr(datasette_litestream.process.subprocess, "Popen", wrapper)
+    return spawned
+
+
+def _fake_litestream(tmp_path, monkeypatch, script):
+    fake = tmp_path / "fake-litestream"
+    fake.write_text("#!/bin/sh\n" + script)
+    fake.chmod(0o755)
+    monkeypatch.setenv("DATASETTE_LITESTREAM_BINARY", str(fake))
+
+
+def test_start_daemon_socket_timeout_kills_child(tmp_path, monkeypatch, spy_popen):
+    """A litestream that never opens its control socket must not be left
+    running (with credentials in its environment) after start_daemon raises."""
+    _fake_litestream(tmp_path, monkeypatch, "exec sleep 300\n")
+
+    proc = LitestreamProcess()
+    with pytest.raises(RuntimeError, match="did not appear"):
+        proc.start_daemon(socket_timeout=1)
+
+    assert len(spy_popen) == 1
+    assert spy_popen[0].poll() is not None  # child reaped, not orphaned
+    assert proc.process is None
+    assert proc.client is None
+    assert proc.configfile is None
+    assert not Path(spy_popen[0].args[-1]).exists()  # config temp file
+    assert proc.socket_dir is not None
+    assert not Path(proc.socket_dir).exists()
+    assert proc._atexit_handler is None
+
+
+def test_start_daemon_instant_death_cleans_up(tmp_path, monkeypatch, spy_popen):
+    """A litestream that dies immediately leaves no temp-file litter."""
+    _fake_litestream(tmp_path, monkeypatch, "exit 1\n")
+
+    proc = LitestreamProcess()
+    with pytest.raises(RuntimeError, match="failed with return code 1"):
+        proc.start_daemon()
+
+    assert len(spy_popen) == 1
+    assert proc.process is None
+    assert proc.configfile is None
+    assert not Path(spy_popen[0].args[-1]).exists()  # config temp file
+    assert proc.socket_dir is not None
+    assert not Path(proc.socket_dir).exists()
+    assert proc._atexit_handler is None
+
+
+# ---------------------------------------------------------------------------
 # Internal database replication and in-memory warnings
 # ---------------------------------------------------------------------------
 

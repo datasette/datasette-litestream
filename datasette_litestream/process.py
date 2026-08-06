@@ -180,12 +180,12 @@ class LitestreamProcess:
 
     # --- Daemon lifecycle -------------------------------------------------
 
-    def start_daemon(self):
+    def start_daemon(self, socket_timeout: float = 5.0):
         """Start the litestream daemon with the control socket enabled."""
         with self._lock:
-            self._start_daemon_locked()
+            self._start_daemon_locked(socket_timeout=socket_timeout)
 
-    def _start_daemon_locked(self):
+    def _start_daemon_locked(self, socket_timeout: float = 5.0):
         litestream_path = resolve_litestream_path()
 
         self.socket_dir = tempfile.mkdtemp(prefix="datasette-litestream-")
@@ -222,20 +222,9 @@ class LitestreamProcess:
             env=env,
         )
 
-        # Wait briefly to catch instant failures (typically config typos).
-        time.sleep(0.5)
-        status = self.process.poll()
-        if status is not None:
-            logs = Path(self.logfile.name).read_text()
-            raise RuntimeError(
-                f"datasette-litestream litestream process failed with return code {status}. Logs:"
-                + logs
-            )
-
-        self._wait_for_socket()
-        self.client = LitestreamClient(self.socket_path)
-
         # Sometimes Popen doesn't die on exit, so explicitly kill it on exit.
+        # Registered immediately after Popen so the child is covered even if
+        # the parent dies while we are still waiting for it to come up.
         def onexit():
             if self.process:
                 self.process.kill()
@@ -244,6 +233,26 @@ class LitestreamProcess:
 
         self._atexit_handler = onexit
         atexit.register(onexit)
+
+        try:
+            # Wait briefly to catch instant failures (typically config typos).
+            time.sleep(0.5)
+            status = self.process.poll()
+            if status is not None:
+                logs = Path(self.logfile.name).read_text()
+                raise RuntimeError(
+                    f"datasette-litestream litestream process failed with return code {status}. Logs:"
+                    + logs
+                )
+
+            self._wait_for_socket(timeout=socket_timeout)
+        except BaseException:
+            # Never leave an orphaned daemon (which holds credentials in its
+            # environment) or temp-file litter behind a failed start.
+            self._stop_daemon_locked()
+            raise
+
+        self.client = LitestreamClient(self.socket_path)
 
     def _wait_for_socket(self, timeout=5.0):
         """Block until the control socket file appears (or the process dies)."""
