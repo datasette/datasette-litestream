@@ -69,6 +69,11 @@ test:
 # Build the frontend, then run the backend tests
 test-all: frontend test
 
+# Credential-rotation integration test against a local versitygw S3 gateway.
+# Opt-in (not part of `just test`); needs versitygw + litestream >= 0.5 on PATH.
+test-versitygw *flags:
+  VERSITYGW_TESTS=1 uv run pytest tests/test_versitygw_credentials.py {{flags}}
+
 # Create a small demo database to replicate (idempotent)
 demo-db:
   #!/usr/bin/env bash

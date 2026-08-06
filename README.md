@@ -258,6 +258,18 @@ cd datasette-litestream
 uv run pytest
 ```
 
+An opt-in end-to-end test of [dynamic credential rotation](#dynamic-credentials)
+runs against a local [versitygw](https://github.com/versity/versitygw) S3
+gateway — real server-side credential enforcement, no cloud account needed. It
+replicates with one user's credentials, deletes that user and verifies
+replication fails, then rotates the credentials file and verifies the refresh
+loop restarts litestream and the replica catches up. It needs a `versitygw`
+binary on `PATH` alongside litestream:
+
+```bash
+just test-versitygw
+```
+
 The admin UI lives in `frontend/` (Svelte 5 + TypeScript + Vite). Build it into
 the Python package (writes `datasette_litestream/manifest.json` and
 `datasette_litestream/static/gen/`) before running Datasette or the backend

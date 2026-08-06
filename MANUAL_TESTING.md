@@ -573,6 +573,12 @@ read "?Did the test pass? Press Enter to continue to the next test..."
 
 **Purpose:** Verify that credentials are automatically refreshed and litestream restarts when credentials change.
 
+> **Automated equivalent:** `just test-versitygw` runs this scenario end-to-end
+> against a local [versitygw](https://github.com/versity/versitygw) S3 gateway —
+> including server-side revocation of the old credentials, which this manual
+> test does not exercise — with no AWS account required. See
+> `tests/test_versitygw_credentials.py`.
+
 ```bash
 echo "Creating initial credentials file..."
 cat > ./rotating-credentials.json << EOF
