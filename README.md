@@ -28,7 +28,7 @@ Then install this plugin in the same environment as Datasette:
 
 ### Replicate a single database to S3
 
-To replicate `my_database.db` to S3, use the following configuration in your `metadata.yaml` file:
+To replicate `my_database.db` to S3, use the following configuration in your `datasette.yml` file:
 
 ```yaml
 databases:
@@ -38,10 +38,10 @@ databases:
         replica: s3://my-bucket/my_database
 ```
 
-Then make sure you export `LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY` with your S3 credentials (or `AWS_ACCESS_KEY_ID` `AWS_SECRET_ACCESS_KEY`), then run with:
+Then make sure you export `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with your S3 credentials, then run with:
 
 ```
-datasette my_database.db -m metadata.yaml
+datasette my_database.db -c datasette.yml
 ```
 
 ### Replicate all databases
@@ -51,8 +51,7 @@ If you have multiple attached databases in Datasette and want to replicate all o
 ```yaml
 plugins:
   datasette-litestream:
-    all-replicate:
-      - s3://my-bucket/$DB_NAME
+    all-replicate: s3://my-bucket/$DB_NAME
 ```
 
 When `all-replicate` is used, a new replica URL is generated for each attached database. In this case, if you had a database named `parking_tickets` and another named `city_budget`, then `datasette-litestream` will replicate them to `s3://my-bucket/parking_tickets` and `s3://my-bucket/city_budget`.
@@ -65,17 +64,17 @@ This is done with "variables" that `datasette-litestream` replaces in the `all-r
 
 ## Config
 
-Some configuration in the `metadata.yaml` will be used to auto-generate the [`litestream.yml`](https://litestream.io/reference/config/) file under the hood. You can use this to customize the Litestream replication process.
+Plugin configuration lives in your `datasette.yml` (passed with `-c`, or via `-s` for individual settings). The plugin generates a minimal Litestream daemon config (control socket plus the optional metrics address) and registers databases with the daemon at runtime.
 
 ### Top-level
 
 The following are valid keys that are allowed when specifying top-level plugin configuration:
 
-- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details.
-- `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `all-replicate` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is in-memory (or an ephemeral temp file), and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
+- `all-replicate`: A template replica URL used to replicate all attached Datasette databases, see above for details. (A list is accepted for backwards compatibility, but only the first entry is used.)
+- `replicate-internal`: Also replicate Datasette's internal database. Set to `true` to derive the replica URL from the `all-replicate` template (using `_internal` as the database name), or to a template replica URL to use directly. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given URL. Use with caution on public Datasette instances! When defined, the metrics info will appear on the `datasette-litestream` status page.
-- `access-key-id`: An alternate way to provide a S3 access key (though the `LITESTREAM_ACCESS_KEY_ID` environment variable is preferred).
-- `secret-access-key`: An alternate way to provide a S3 secret key (though the `LITESTREAM_SECRET_ACCESS_KEY` environment variable is preferred).
+- `access-key-id`: An alternate way to provide a S3 access key (though the `AWS_ACCESS_KEY_ID` environment variable is preferred).
+- `secret-access-key`: An alternate way to provide a S3 secret key (though the `AWS_SECRET_ACCESS_KEY` environment variable is preferred).
 - `session-token`: Optional AWS session token for temporary credentials (e.g., when using AWS STS).
 - `credentials-file`: Path to a JSON file containing credentials (see Dynamic Credentials below).
 - `credentials-command`: A CLI command to execute that returns JSON credentials (see Dynamic Credentials below).
@@ -90,9 +89,7 @@ Example:
 ```yaml
 plugins:
   datasette-litestream:
-    all-replicate:
-      - XXX
-      - YYY
+    all-replicate: s3://my-bucket/$DB_NAME
     metrics-addr: :5001
     access-key-id: $YOUR_KEY
     secret-access-key: $YOUR_SECRET
@@ -184,6 +181,17 @@ databases:
 > options from the 0.3.x plugin (`monitor-interval`, `checkpoint-interval`,
 > `min-checkpoint-page-count`, `max-checkpoint-page-count`) are not currently
 > exposed when registering databases over the control socket.
+
+### Litestream binary
+
+The plugin resolves the `litestream` binary to run, in this order:
+
+1. The `DATASETTE_LITESTREAM_BINARY` environment variable, if set.
+2. A binary bundled inside the installed wheel (`datasette_litestream/bin/litestream`), when present.
+3. `litestream` found on `PATH`.
+
+A Litestream **0.5.x** binary is required (the plugin depends on its control
+socket).
 
 ## Adding and removing databases at runtime
 
