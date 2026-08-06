@@ -30,19 +30,13 @@ def internal_database_path(datasette):
     """Return (path, None) for a persistent internal database, or (None, reason).
 
     Without ``datasette --internal /path/to/internal.db`` the internal database
-    lives in memory or in a throwaway temp file, so replicating it is useless.
+    lives in a throwaway temp file, so replicating it is useless.
     """
-    if not hasattr(datasette, "get_internal_database"):
-        return None, "This Datasette version has no internal database."
     internal_db = datasette.get_internal_database()
-    if (
-        internal_db.path is None
-        or internal_db.is_memory
-        or getattr(internal_db, "is_temp_disk", False)
-    ):
+    if internal_db.is_temp_disk or internal_db.path is None:
         return None, (
-            "The internal database is in-memory only (or an ephemeral temp file), "
-            "so Litestream cannot usefully replicate it. Start Datasette with "
+            "The internal database is an ephemeral temp file, so Litestream "
+            "cannot usefully replicate it. Start Datasette with "
             "--internal /path/to/internal.db to persist it."
         )
     return Path(internal_db.path), None
