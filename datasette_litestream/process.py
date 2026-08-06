@@ -67,10 +67,10 @@ def load_credentials_from_command(command: str) -> Credentials:
 
 def get_dynamic_credentials(config: LitestreamConfig) -> Credentials | None:
     """Get credentials from file or command if configured."""
-    if config.credentials_file:
-        return load_credentials_from_file(config.credentials_file)
-    elif config.credentials_command:
-        return load_credentials_from_command(config.credentials_command)
+    if config.credentials.file:
+        return load_credentials_from_file(config.credentials.file)
+    elif config.credentials.command:
+        return load_credentials_from_command(config.credentials.command)
     return None
 
 

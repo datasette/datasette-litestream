@@ -84,14 +84,17 @@ The following are valid keys that are allowed when specifying top-level plugin c
   - `logging.level`: One of `debug`, `info`, `warn`, `error`. Defaults to `info`.
   - `logging.type`: Log format, `text` or `json`. Defaults to `text`.
   - `logging.path`: Write logs to this file (opened in append mode) instead of a session-scoped temporary file. Useful for long-lived deployments where you want the logs somewhere durable (and rotatable).
-- `access-key-id`: An alternate way to provide a S3 access key (though the `AWS_ACCESS_KEY_ID` environment variable is preferred).
-- `secret-access-key`: An alternate way to provide a S3 secret key (though the `AWS_SECRET_ACCESS_KEY` environment variable is preferred).
-- `session-token`: Optional AWS session token for temporary credentials (e.g., when using AWS STS).
-- `credentials-file`: Path to a JSON file containing credentials (see Dynamic Credentials below).
-- `credentials-command`: A CLI command to execute that returns JSON credentials (see Dynamic Credentials below).
-- `credentials-refresh-interval`: How often (in seconds) to check for credential changes. Required when using `credentials-file` or `credentials-command`.
+- `credentials`: S3 credentials, either static keys or a dynamic source (see [Dynamic Credentials](#dynamic-credentials) below). Static keys and a dynamic source cannot be combined. Sub-keys:
+  - `credentials.access-key-id`: An alternate way to provide a S3 access key (though the `AWS_ACCESS_KEY_ID` environment variable is preferred).
+  - `credentials.secret-access-key`: An alternate way to provide a S3 secret key (though the `AWS_SECRET_ACCESS_KEY` environment variable is preferred).
+  - `credentials.session-token`: Optional AWS session token for temporary credentials (e.g., when using AWS STS).
+  - `credentials.file`: Path to a JSON file containing credentials.
+  - `credentials.command`: A CLI command to execute that returns JSON credentials. Cannot be combined with `credentials.file`.
+  - `credentials.refresh-interval`: How often (in seconds) to check for credential changes. Required when using `credentials.file` or `credentials.command` (and only valid alongside one of them).
 
 None of these keys are required.
+
+Earlier versions of this plugin accepted the credential keys as flat top-level keys (`access-key-id`, `credentials-file`, `credentials-refresh-interval`, etc.); they now live inside the `credentials` block and the flat spellings are rejected at startup.
 
 Configuration is validated at startup: an unrecognized key (or an invalid value) raises an error instead of being silently ignored, so typos surface immediately.
 
@@ -102,8 +105,9 @@ plugins:
   datasette-litestream:
     all-replicate: s3://my-bucket/$DB_NAME
     metrics-addr: 127.0.0.1:5001
-    access-key-id: $YOUR_KEY
-    secret-access-key: $YOUR_SECRET
+    credentials:
+      access-key-id: $YOUR_KEY
+      secret-access-key: $YOUR_SECRET
     logging:
       level: warn
       path: /var/log/litestream.log
@@ -119,7 +123,7 @@ datasette . -s plugins.datasette-litestream.logging.level warn
 
 For environments where credentials rotate or are fetched dynamically (e.g., from a secrets manager), you can configure `datasette-litestream` to read credentials from a file or execute a command, and periodically check for changes.
 
-**Important:** You cannot specify both `credentials-file` and `credentials-command` - use one or the other.
+**Important:** You cannot specify both `credentials.file` and `credentials.command` - use one or the other. A dynamic source also cannot be combined with the static keys (`access-key-id` etc.) — the file or command provides them.
 
 #### Reading credentials from a file
 
@@ -140,8 +144,9 @@ Then configure the plugin to read from this file:
 ```yaml
 plugins:
   datasette-litestream:
-    credentials-file: /path/to/credentials.json
-    credentials-refresh-interval: 300  # Check every 5 minutes
+    credentials:
+      file: /path/to/credentials.json
+      refresh-interval: 300  # Check every 5 minutes
 ```
 
 #### Reading credentials from a command
@@ -151,8 +156,9 @@ You can also execute a CLI command that outputs JSON credentials. This is useful
 ```yaml
 plugins:
   datasette-litestream:
-    credentials-command: ./fetch_creds.sh --bucket my-bucket
-    credentials-refresh-interval: 300  # Check every 5 minutes
+    credentials:
+      command: ./fetch_creds.sh --bucket my-bucket
+      refresh-interval: 300  # Check every 5 minutes
 ```
 
 The command should output JSON to stdout in the same format:
@@ -170,7 +176,7 @@ The `session-token` field is optional.
 #### How credential refresh works
 
 1. On startup, credentials are loaded from the file or command
-2. Every `credentials-refresh-interval` seconds, the file is re-read or the command is re-executed
+2. Every `refresh-interval` seconds, the file is re-read or the command is re-executed
 3. If the credentials have changed, `datasette-litestream` will:
    - Stop the current litestream daemon
    - Restart it with the new credentials in its environment

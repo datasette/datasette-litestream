@@ -39,11 +39,69 @@ class Credentials(BaseModel):
 
 
 class LoadedCredentials(Credentials):
-    """Credentials loaded from ``credentials-file`` / ``credentials-command``,
-    where the access-key-id / secret-access-key pair is required."""
+    """Credentials loaded from a credentials ``file`` / ``command``, where the
+    access-key-id / secret-access-key pair is required."""
 
     access_key_id: str
     secret_access_key: str
+
+
+class CredentialsConfig(Credentials):
+    """``credentials`` config block: static keys, or a dynamic source.
+
+    Extends ``Credentials`` with the dynamic-credential options
+    (mutually exclusive ``file``/``command``, plus their required
+    ``refresh-interval``). Unlike ``Credentials`` this is operator-written
+    config, so unknown keys are forbidden like the other config models.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=_kebab, populate_by_name=True, extra="forbid"
+    )
+
+    # Dynamic credentials: a JSON file to read, or a command emitting JSON.
+    file: str | None = None
+    command: str | None = None
+    # How often (seconds) to re-check the file/command for rotated credentials.
+    refresh_interval: float | None = None
+
+    @model_validator(mode="after")
+    def _check_options(self):
+        if self.file and self.command:
+            raise ValueError("cannot specify both a credentials 'file' and 'command'")
+        if self.uses_dynamic:
+            if not self.refresh_interval:
+                raise ValueError(
+                    "credentials 'refresh-interval' is required when using a "
+                    "credentials 'file' or 'command'"
+                )
+            if self.access_key_id or self.secret_access_key or self.session_token:
+                raise ValueError(
+                    "static credentials ('access-key-id', 'secret-access-key', "
+                    "'session-token') cannot be combined with a credentials "
+                    "'file' or 'command' — the dynamic source provides them"
+                )
+        elif self.refresh_interval is not None:
+            raise ValueError(
+                "credentials 'refresh-interval' has no effect without a "
+                "credentials 'file' or 'command'"
+            )
+        return self
+
+    @property
+    def uses_dynamic(self) -> bool:
+        return bool(self.file or self.command)
+
+    @property
+    def static(self) -> Credentials | None:
+        """Credentials from the static keys, or None if none are set."""
+        if not (self.access_key_id or self.secret_access_key or self.session_token):
+            return None
+        return Credentials(
+            access_key_id=self.access_key_id,
+            secret_access_key=self.secret_access_key,
+            session_token=self.session_token,
+        )
 
 
 class LoggingConfig(BaseModel):
@@ -109,16 +167,8 @@ class LitestreamConfig(BaseModel):
     restrict_runtime_replicas: bool = False
     # litestream daemon logging: level, format and destination file.
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-
-    # Static credentials.
-    access_key_id: str | None = None
-    secret_access_key: str | None = None
-    session_token: str | None = None
-
-    # Dynamic credentials (mutually exclusive file/command; interval required).
-    credentials_file: str | None = None
-    credentials_command: str | None = None
-    credentials_refresh_interval: float | None = None
+    # S3 credentials: static keys, or a dynamic file/command source.
+    credentials: CredentialsConfig = Field(default_factory=CredentialsConfig)
 
     @field_validator("all_replicate", mode="before")
     @classmethod
@@ -126,34 +176,6 @@ class LitestreamConfig(BaseModel):
         if isinstance(value, (list, tuple)):
             return value[0] if value else None
         return value
-
-    @model_validator(mode="after")
-    def _check_credential_options(self):
-        if self.credentials_file and self.credentials_command:
-            raise ValueError(
-                "cannot specify both 'credentials-file' and 'credentials-command'"
-            )
-        if self.uses_dynamic_credentials and not self.credentials_refresh_interval:
-            raise ValueError(
-                "'credentials-refresh-interval' is required when using "
-                "'credentials-file' or 'credentials-command'"
-            )
-        return self
-
-    @property
-    def uses_dynamic_credentials(self) -> bool:
-        return bool(self.credentials_file or self.credentials_command)
-
-    @property
-    def static_credentials(self) -> Credentials | None:
-        """Credentials from the static config keys, or None if none are set."""
-        if not (self.access_key_id or self.secret_access_key or self.session_token):
-            return None
-        return Credentials(
-            access_key_id=self.access_key_id,
-            secret_access_key=self.secret_access_key,
-            session_token=self.session_token,
-        )
 
 
 def get_config(datasette) -> LitestreamConfig:

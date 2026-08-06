@@ -149,7 +149,7 @@ def startup(datasette):
         raise StartupError(f"datasette-litestream: invalid configuration: {e}") from e
 
     # Load credentials from file/command or from static config
-    if config.uses_dynamic_credentials:
+    if config.credentials.uses_dynamic:
         try:
             creds = get_dynamic_credentials(config)
         except Exception as e:
@@ -157,7 +157,7 @@ def startup(datasette):
                 f"datasette-litestream: failed to load initial credentials: {e}"
             ) from e
     else:
-        creds = config.static_credentials
+        creds = config.credentials.static
 
     all_replicate = config.all_replicate
     warnings = []
@@ -275,9 +275,9 @@ def startup(datasette):
 
     # Schedule credential refresh if using dynamic credentials. The interval
     # is re-checked here (the model validator guarantees it) to narrow away None.
-    if config.uses_dynamic_credentials and config.credentials_refresh_interval:
+    if config.credentials.uses_dynamic and config.credentials.refresh_interval:
         litestream_process._refresh_task = asyncio.create_task(
             credential_refresh_loop(
-                startup_id, config, config.credentials_refresh_interval
+                startup_id, config, config.credentials.refresh_interval
             )
         )

@@ -26,14 +26,13 @@ def test_top_level_kebab_aliases():
             "all-replicate": "s3://bucket/$DB_NAME",
             "replicate-internal": True,
             "metrics-addr": ":9090",
-            "access-key-id": "AKIA",
-            "secret-access-key": "secret",
+            "credentials": {"access-key-id": "AKIA", "secret-access-key": "secret"},
         }
     )
     assert config.all_replicate == "s3://bucket/$DB_NAME"
     assert config.replicate_internal is True
     assert config.metrics_addr == ":9090"
-    assert config.access_key_id == "AKIA"
+    assert config.credentials.access_key_id == "AKIA"
 
 
 def test_restrict_runtime_replicas_parses():
@@ -74,28 +73,82 @@ def test_replicate_internal_accepts_bool_or_template():
     )
 
 
+def test_credentials_block_static():
+    config = LitestreamConfig.model_validate(
+        {"credentials": {"access-key-id": "AKIA", "secret-access-key": "secret"}}
+    )
+    assert config.credentials.static == Credentials(
+        access_key_id="AKIA", secret_access_key="secret"
+    )
+    assert config.credentials.uses_dynamic is False
+
+
+def test_credentials_block_dynamic():
+    config = LitestreamConfig.model_validate(
+        {"credentials": {"file": "/creds.json", "refresh-interval": 60}}
+    )
+    assert config.credentials.file == "/creds.json"
+    assert config.credentials.refresh_interval == 60
+    assert config.credentials.uses_dynamic is True
+    assert config.credentials.static is None
+
+
 def test_credentials_file_and_command_mutually_exclusive():
     with pytest.raises(ValidationError, match="cannot specify both"):
         LitestreamConfig.model_validate(
             {
-                "credentials-file": "/creds.json",
-                "credentials-command": "cmd",
-                "credentials-refresh-interval": 60,
+                "credentials": {
+                    "file": "/creds.json",
+                    "command": "cmd",
+                    "refresh-interval": 60,
+                }
             }
         )
 
 
 def test_credentials_refresh_interval_required_with_dynamic():
-    with pytest.raises(ValidationError, match="credentials-refresh-interval.*required"):
-        LitestreamConfig.model_validate({"credentials-file": "/creds.json"})
+    with pytest.raises(ValidationError, match="refresh-interval.*required"):
+        LitestreamConfig.model_validate({"credentials": {"file": "/creds.json"}})
 
 
-def test_static_credentials():
-    assert LitestreamConfig().static_credentials is None
-    creds = LitestreamConfig.model_validate(
-        {"access-key-id": "AKIA", "secret-access-key": "secret"}
-    ).static_credentials
-    assert creds == Credentials(access_key_id="AKIA", secret_access_key="secret")
+def test_credentials_refresh_interval_alone_is_rejected():
+    with pytest.raises(ValidationError, match="refresh-interval.*without"):
+        LitestreamConfig.model_validate({"credentials": {"refresh-interval": 60}})
+
+
+def test_credentials_static_and_dynamic_are_mutually_exclusive():
+    with pytest.raises(ValidationError, match="cannot be combined"):
+        LitestreamConfig.model_validate(
+            {
+                "credentials": {
+                    "access-key-id": "AKIA",
+                    "file": "/creds.json",
+                    "refresh-interval": 60,
+                }
+            }
+        )
+
+
+def test_unknown_credentials_key_is_forbidden():
+    with pytest.raises(ValidationError, match="acces-key-id"):
+        LitestreamConfig.model_validate({"credentials": {"acces-key-id": "typo"}})
+
+
+def test_old_flat_credential_keys_are_rejected():
+    """The pre-0.5 flat credential keys were replaced by the ``credentials``
+    block; extra="forbid" surfaces them with a clear error."""
+    with pytest.raises(ValidationError, match="access-key-id"):
+        LitestreamConfig.model_validate({"access-key-id": "AKIA"})
+    with pytest.raises(ValidationError, match="credentials-file"):
+        LitestreamConfig.model_validate(
+            {"credentials-file": "/creds.json", "credentials-refresh-interval": 60}
+        )
+
+
+def test_no_credentials_at_all():
+    config = LitestreamConfig()
+    assert config.credentials.static is None
+    assert config.credentials.uses_dynamic is False
 
 
 # --- DatabaseConfig ---------------------------------------------------------

@@ -79,8 +79,10 @@ async def test_credential_rotation_end_to_end(gateway, tmp_path):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "credentials-file": str(creds_path),
-                    "credentials-refresh-interval": 0.5,
+                    "credentials": {
+                        "file": str(creds_path),
+                        "refresh-interval": 0.5,
+                    }
                 }
             },
             "databases": {

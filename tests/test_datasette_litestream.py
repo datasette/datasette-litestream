@@ -24,6 +24,7 @@ from datasette_litestream import credential_refresh_loop
 from datasette_litestream._client import LitestreamClient
 from datasette_litestream.config import (
     Credentials,
+    CredentialsConfig,
     DatabaseConfig,
     LitestreamConfig,
     LoggingConfig,
@@ -598,7 +599,7 @@ def test_get_dynamic_credentials_with_file(tmpdir):
     )
     result = get_dynamic_credentials(
         LitestreamConfig(
-            credentials_file=str(creds_file), credentials_refresh_interval=60
+            credentials=CredentialsConfig(file=str(creds_file), refresh_interval=60)
         )
     )
     assert result is not None
@@ -611,8 +612,9 @@ def test_get_dynamic_credentials_with_command():
     )
     result = get_dynamic_credentials(
         LitestreamConfig(
-            credentials_command=f"echo '{creds_json}'",
-            credentials_refresh_interval=60,
+            credentials=CredentialsConfig(
+                command=f"echo '{creds_json}'", refresh_interval=60
+            )
         )
     )
     assert result is not None
@@ -670,9 +672,11 @@ async def test_credentials_file_and_command_error(students_db_path, tmpdir):
         [students_db_path],
         config=_creds_config(
             {
-                "credentials-file": str(creds_file),
-                "credentials-command": "echo '{}'",
-                "credentials-refresh-interval": 60,
+                "credentials": {
+                    "file": str(creds_file),
+                    "command": "echo '{}'",
+                    "refresh-interval": 60,
+                }
             },
             backup_dir,
         ),
@@ -691,9 +695,9 @@ async def test_credentials_refresh_interval_required(students_db_path, tmpdir):
     backup_dir = str(Path(students_db_path).parents[0] / "students-backup")
     datasette = Datasette(
         [students_db_path],
-        config=_creds_config({"credentials-file": str(creds_file)}, backup_dir),
+        config=_creds_config({"credentials": {"file": str(creds_file)}}, backup_dir),
     )
-    with pytest.raises(StartupError, match="credentials-refresh-interval.*required"):
+    with pytest.raises(StartupError, match="refresh-interval.*required"):
         await datasette.invoke_startup()
 
 
@@ -704,8 +708,10 @@ async def test_credentials_file_not_found_error(students_db_path):
         [students_db_path],
         config=_creds_config(
             {
-                "credentials-file": "/nonexistent/creds.json",
-                "credentials-refresh-interval": 60,
+                "credentials": {
+                    "file": "/nonexistent/creds.json",
+                    "refresh-interval": 60,
+                }
             },
             backup_dir,
         ),
@@ -720,7 +726,7 @@ async def test_credentials_command_failure_at_startup(students_db_path):
     datasette = Datasette(
         [students_db_path],
         config=_creds_config(
-            {"credentials-command": "false", "credentials-refresh-interval": 60},
+            {"credentials": {"command": "false", "refresh-interval": 60}},
             backup_dir,
         ),
     )
@@ -730,6 +736,7 @@ async def test_credentials_command_failure_at_startup(students_db_path):
 
 @pytest.mark.asyncio
 async def test_credentials_file_basic(litestream_binary, students_db_path, tmpdir):
+    """End-to-end replication configured through the ``credentials`` block."""
     creds_file = tmpdir / "creds.json"
     creds_file.write_text(
         json.dumps(
@@ -742,8 +749,10 @@ async def test_credentials_file_basic(litestream_binary, students_db_path, tmpdi
         [students_db_path],
         config=_creds_config(
             {
-                "credentials-file": str(creds_file),
-                "credentials-refresh-interval": 300,
+                "credentials": {
+                    "file": str(creds_file),
+                    "refresh-interval": 300,
+                }
             },
             backup_dir,
         ),
@@ -783,10 +792,7 @@ async def test_credentials_not_leaked_in_status(
     datasette = Datasette(
         [students_db_path],
         config=_creds_config(
-            {
-                "credentials-file": str(creds_file),
-                "credentials-refresh-interval": 300,
-            },
+            {"credentials": {"file": str(creds_file), "refresh-interval": 300}},
             backup_dir,
         ),
     )
@@ -814,10 +820,7 @@ async def test_credential_refresh_task_is_stored(
     datasette = Datasette(
         [students_db_path],
         config=_creds_config(
-            {
-                "credentials-file": str(creds_file),
-                "credentials-refresh-interval": 300,
-            },
+            {"credentials": {"file": str(creds_file), "refresh-interval": 300}},
             backup_dir,
         ),
     )
@@ -887,7 +890,7 @@ async def test_refresh_loop_survives_bad_credentials_file(tmpdir, refresh_loop_p
     creds_file = tmpdir / "creds.json"
     creds_file.write_text("", encoding="utf-8")
     config = LitestreamConfig(
-        credentials_file=str(creds_file), credentials_refresh_interval=0.05
+        credentials=CredentialsConfig(file=str(creds_file), refresh_interval=0.05)
     )
 
     async def scenario():
@@ -913,7 +916,9 @@ async def test_refresh_loop_survives_failing_command(tmpdir, refresh_loop_proces
     startup_id, _litestream_process, restarts = refresh_loop_process
     creds_file = tmpdir / "creds.json"  # does not exist yet -> `cat` fails
     config = LitestreamConfig(
-        credentials_command=f"cat {creds_file}", credentials_refresh_interval=0.05
+        credentials=CredentialsConfig(
+            command=f"cat {creds_file}", refresh_interval=0.05
+        )
     )
 
     async def scenario():
@@ -945,7 +950,7 @@ async def test_refresh_loop_restarts_downed_daemon(tmpdir, refresh_loop_process)
         encoding="utf-8",
     )
     config = LitestreamConfig(
-        credentials_file=str(creds_file), credentials_refresh_interval=0.05
+        credentials=CredentialsConfig(file=str(creds_file), refresh_interval=0.05)
     )
     # Same hash as the file, and process is None (daemon down).
     litestream_process.update_credentials(creds)
