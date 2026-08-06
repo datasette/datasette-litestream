@@ -8,6 +8,7 @@ import asyncio
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from datasette.utils.asgi import Response
 from datasette_plugin_router import Body
 
@@ -48,6 +49,30 @@ def _suggested_replica(datasette, db_name, db_path):
         Path(db_path),
         get_database_config(datasette, db_name),
         get_config(datasette).all_replicate,
+    )
+
+
+# Exceptions a control-socket call can raise short of a programming error:
+# LitestreamControlError (daemon replied with an error), httpx transport
+# failures (daemon crashed / socket gone / timed out), and RuntimeError from
+# _require_client (daemon mid-restart during credential rotation).
+DAEMON_ERRORS = (LitestreamControlError, httpx.HTTPError, RuntimeError)
+
+
+def _daemon_error_response(e):
+    """Map a control-socket failure to a JSON 5xx ActionResult response."""
+    if isinstance(e, LitestreamControlError):
+        return Response.json(
+            {"ok": False, "error": str(e), "details": e.details}, status=502
+        )
+    if isinstance(e, httpx.TimeoutException):
+        return Response.json(
+            {"ok": False, "error": "timed out talking to the litestream daemon"},
+            status=504,
+        )
+    return Response.json(
+        {"ok": False, "error": "the litestream daemon is restarting or unavailable"},
+        status=503,
     )
 
 
@@ -206,13 +231,11 @@ async def _db_action(datasette, db_name, method_name, **kwargs):
             status=404,
         )
 
-    method = getattr(litestream_process.client, method_name)
     try:
+        method = getattr(litestream_process._require_client(), method_name)
         result = await asyncio.to_thread(method, db_path, **kwargs)
-    except LitestreamControlError as e:
-        return Response.json(
-            {"ok": False, "error": str(e), "details": e.details}, status=502
-        )
+    except DAEMON_ERRORS as e:
+        return _daemon_error_response(e)
     return Response.json({"ok": True, "database": db_name, "result": result})
 
 
@@ -222,6 +245,8 @@ async def litestream_api_sync(
     datasette, request, body: Annotated[DbActionBody, Body()]
 ):
     """POST /-/litestream/api/sync  {"database": "<name>"}"""
+    # The control-socket client's 30s transport timeout bounds this blocking
+    # sync; an over-long first sync surfaces as a 504 rather than hanging.
     return await _db_action(datasette, body.database, "sync", wait=True)
 
 
@@ -299,11 +324,8 @@ async def litestream_register(
         result = await asyncio.to_thread(
             litestream_process.register_db, db_path, replica_url, db_name
         )
-    except LitestreamControlError as e:
-        return Response.json(
-            {"ok": False, "error": str(e), "details": e.details},
-            status=502,
-        )
+    except DAEMON_ERRORS as e:
+        return _daemon_error_response(e)
 
     return Response.json(
         {
@@ -354,11 +376,8 @@ async def litestream_unregister(
         result = await asyncio.to_thread(
             litestream_process.unregister_db, db_path, timeout
         )
-    except LitestreamControlError as e:
-        return Response.json(
-            {"ok": False, "error": str(e), "details": e.details},
-            status=502,
-        )
+    except DAEMON_ERRORS as e:
+        return _daemon_error_response(e)
 
     return Response.json(
         {

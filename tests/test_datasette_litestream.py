@@ -26,6 +26,7 @@ from datasette_litestream.config import (
     LitestreamConfig,
     LoggingConfig,
 )
+from datasette_litestream.contract import ActionResult
 from datasette_litestream.process import (
     DATASETTE_LITESTREAM_PROCESS_KEY,
     LitestreamProcess,
@@ -1175,6 +1176,101 @@ async def test_unregister_detached_database_integration(litestream_binary, tmpdi
     assert not any("extra.db" in p for p in proc.registered)
     assert proc.client is not None
     assert not any("extra.db" in db["path"] for db in proc.client.list_databases())
+
+
+# ---------------------------------------------------------------------------
+# Daemon-down error mapping
+# ---------------------------------------------------------------------------
+
+
+async def _datasette_with_fake_process(tmpdir, client):
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    datasette = Datasette([db_path])
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+    proc = LitestreamProcess()
+    proc.client = client
+    processes["test-daemon-down"] = proc
+    setattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, "test-daemon-down")
+    return datasette, proc
+
+
+MANAGE_POSTS = [
+    ("/-/litestream/api/sync", {"database": "data"}),
+    ("/-/litestream/api/start", {"database": "data"}),
+    ("/-/litestream/api/stop", {"database": "data"}),
+    (
+        "/-/litestream/register",
+        {"database": "data", "replica": "file:///tmp/replica"},
+    ),
+    ("/-/litestream/unregister", {"database": "data"}),
+]
+
+
+@pytest.mark.asyncio
+async def test_routes_return_503_while_daemon_restarting(tmpdir):
+    """client is None mid credential-rotation: every manage route must answer
+    JSON 503, not an AttributeError/RuntimeError traceback."""
+    datasette, _proc = await _datasette_with_fake_process(tmpdir, None)
+    headers = await root_token(datasette)
+    for route, body in MANAGE_POSTS:
+        response = await datasette.client.post(route, json=body, headers=headers)
+        assert response.status_code == 503, (route, response.text)
+        payload = response.json()
+        assert payload["ok"] is False
+        assert ActionResult.model_validate(payload).ok is False
+
+
+class TimeoutClient(FakeClient):
+    def sync(self, path, wait=False, timeout=None):
+        raise httpx.ReadTimeout("read timed out")
+
+
+@pytest.mark.asyncio
+async def test_sync_timeout_maps_to_504(tmpdir):
+    datasette, _proc = await _datasette_with_fake_process(
+        tmpdir, cast(LitestreamClient, TimeoutClient())
+    )
+    headers = await root_token(datasette)
+    response = await datasette.client.post(
+        "/-/litestream/api/sync", json={"database": "data"}, headers=headers
+    )
+    assert response.status_code == 504, response.text
+    payload = response.json()
+    assert payload["ok"] is False
+    assert "timed out" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_dead_daemon_returns_json_5xx(litestream_binary, tmpdir):
+    """A crashed daemon (socket dead) yields a JSON 5xx, not a raw 500."""
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+    datasette = Datasette(
+        [db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "all-replicate": ["file://" + str(backups) + "/$DB_NAME"]
+                }
+            }
+        },
+    )
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+    proc = processes[getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)]
+    assert proc.process is not None
+    proc.process.kill()
+    proc.process.wait()
+
+    headers = await root_token(datasette)
+    response = await datasette.client.post(
+        "/-/litestream/api/sync", json={"database": "data"}, headers=headers
+    )
+    assert response.status_code in (502, 503, 504), response.text
+    assert response.json()["ok"] is False
 
 
 # ---------------------------------------------------------------------------
