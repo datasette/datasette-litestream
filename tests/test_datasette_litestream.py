@@ -1265,6 +1265,58 @@ def test_interpreter_exit_integration(litestream_binary):
 
 
 # ---------------------------------------------------------------------------
+# Lifecycle: lazy construction and final teardown
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_instance_creates_no_process(monkeypatch):
+    """An instance without litestream config must not construct a
+    LitestreamProcess (whose __init__ opens the log destination)."""
+    constructed = []
+    real_init = LitestreamProcess.__init__
+
+    def spy_init(self, *args, **kwargs):
+        constructed.append(self)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(LitestreamProcess, "__init__", spy_init)
+    datasette = Datasette(memory=True)
+    await datasette.invoke_startup()
+    assert constructed == []
+    assert processes == {}
+
+
+@pytest.mark.asyncio
+async def test_stop_daemon_closes_logfile_and_prunes_registry(
+    litestream_binary, students_db_path
+):
+    backup_dir = str(Path(students_db_path).parents[0] / "students-backup")
+    datasette = Datasette(
+        [students_db_path],
+        config={
+            "databases": {
+                "students": {
+                    "plugins": {
+                        "datasette-litestream": {"replica": file_replica(backup_dir)}
+                    }
+                }
+            }
+        },
+    )
+    await datasette.invoke_startup()
+    startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)
+    proc = processes[startup_id]
+    logfile = proc.logfile
+
+    proc.stop_daemon()
+
+    assert logfile.closed
+    assert startup_id not in processes
+    proc.stop_daemon()  # final teardown is idempotent
+
+
+# ---------------------------------------------------------------------------
 # Internal database replication and in-memory warnings
 # ---------------------------------------------------------------------------
 

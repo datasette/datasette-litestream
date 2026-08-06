@@ -148,8 +148,6 @@ def startup(datasette):
     except ValidationError as e:
         raise StartupError(f"datasette-litestream: invalid configuration: {e}") from e
 
-    litestream_process = LitestreamProcess(logging_config=config.logging)
-
     # Load credentials from file/command or from static config
     if config.uses_dynamic_credentials:
         try:
@@ -160,10 +158,6 @@ def startup(datasette):
             ) from e
     else:
         creds = config.static_credentials
-
-    litestream_process.credentials = creds
-    litestream_process.current_credentials_hash = credentials_hash(creds)
-    litestream_process.metrics_addr = config.metrics_addr
 
     all_replicate = config.all_replicate
     warnings = []
@@ -223,7 +217,6 @@ def startup(datasette):
                 )
             initial.append((str(internal_path.resolve()), replica_url))
 
-    litestream_process.warnings = warnings
     for warning in warnings:
         print(f"datasette-litestream: WARNING: {warning}", file=sys.stderr)
 
@@ -231,7 +224,16 @@ def startup(datasette):
     if not plugin_config_top and len(initial) == 0:
         return
 
+    # Constructed only now that we know the plugin will run: __init__ opens
+    # the log destination (possibly the operator's configured log file).
+    litestream_process = LitestreamProcess(logging_config=config.logging)
+    litestream_process.credentials = creds
+    litestream_process.current_credentials_hash = credentials_hash(creds)
+    litestream_process.metrics_addr = config.metrics_addr
+    litestream_process.warnings = warnings
+
     startup_id = str(uuid.uuid4())
+    litestream_process.startup_id = startup_id
     processes[startup_id] = litestream_process
     setattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, startup_id)
 

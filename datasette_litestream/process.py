@@ -169,6 +169,9 @@ class LitestreamProcess:
         else:
             self.logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=True)  # noqa: SIM115
         self.configfile = None
+        # Key of this process in the module-level ``processes`` registry,
+        # set at registration; used to prune the entry on final teardown.
+        self.startup_id = None
         # atexit handler (stored so we can unregister it) and refresh task.
         self._atexit_handler = None
         self._refresh_task = None
@@ -295,6 +298,7 @@ class LitestreamProcess:
                 self._stop_daemon_locked(wait_timeout=wait_timeout)
             finally:
                 self._lock.release()
+            self._release()
         else:
             # The lock is held by an operation that will never finish (we are
             # exiting); fall back to a hard kill so no orphan survives.
@@ -304,9 +308,24 @@ class LitestreamProcess:
                 Path(self.configfile.name).unlink(missing_ok=True)
 
     def stop_daemon(self):
-        """Gracefully stop the litestream daemon and clean up temp files."""
+        """Gracefully stop the litestream daemon and clean up temp files.
+
+        This is final teardown: it also closes the log handle and drops the
+        process from the registry. A rotation restart goes through
+        ``_stop_daemon_locked`` directly, which leaves both intact (the new
+        daemon reuses the logfile).
+        """
         with self._lock:
             self._stop_daemon_locked()
+        self._release()
+
+    def _release(self):
+        """Close the log handle and prune the registry entry (idempotent)."""
+        if not self.logfile.closed:
+            self.logfile.close()
+        if self.startup_id is not None:
+            processes.pop(self.startup_id, None)
+            self.startup_id = None
 
     def _stop_daemon_locked(self, wait_timeout: float = 10.0):
         if self._atexit_handler:
