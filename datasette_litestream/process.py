@@ -39,9 +39,14 @@ def load_credentials_from_file(path: str) -> Credentials:
 def load_credentials_from_command(command: str) -> Credentials:
     """Execute a command and parse its JSON output for credentials."""
     args = shlex.split(command)
-    result = subprocess.run(
-        args, capture_output=True, text=True, timeout=30, check=False
-    )
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=30, check=False
+        )
+    except subprocess.TimeoutExpired as e:
+        raise StartupError(
+            f"Credentials command timed out after {e.timeout} seconds"
+        ) from e
     if result.returncode != 0:
         raise StartupError(
             f"Credentials command failed with return code {result.returncode}: {result.stderr}"

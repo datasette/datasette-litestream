@@ -1,5 +1,7 @@
 import asyncio
+import contextlib
 import json
+import subprocess
 from pathlib import Path
 
 import httpx
@@ -11,6 +13,8 @@ from datasette.database import Database
 from datasette.utils import StartupError
 from pydantic import ValidationError
 
+import datasette_litestream.process
+from datasette_litestream import credential_refresh_loop
 from datasette_litestream.config import (
     Credentials,
     DatabaseConfig,
@@ -818,6 +822,131 @@ async def test_credential_refresh_task_is_stored(
     assert litestream_process is not None
     assert litestream_process._refresh_task is not None
     assert not litestream_process._refresh_task.done()
+
+
+# ---------------------------------------------------------------------------
+# Credential refresh loop resilience
+# ---------------------------------------------------------------------------
+
+
+def test_load_credentials_from_command_timeout(monkeypatch):
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="slow-command", timeout=30)
+
+    monkeypatch.setattr(datasette_litestream.process.subprocess, "run", fake_run)
+    with pytest.raises(StartupError, match="timed out"):
+        load_credentials_from_command("slow-command")
+
+
+@pytest.fixture
+def refresh_loop_process(monkeypatch):
+    """A registered LitestreamProcess whose restarts are recorded, plus the
+    task cleanup the refresh-loop tests all need."""
+    litestream_process = LitestreamProcess()
+    restarts = []
+    monkeypatch.setattr(
+        litestream_process, "restart_with_new_credentials", restarts.append
+    )
+    startup_id = "test-refresh-loop"
+    processes[startup_id] = litestream_process
+    yield startup_id, litestream_process, restarts
+
+
+async def _run_refresh_loop_until(config, startup_id, condition, ticks=0.05):
+    """Run the loop, wait for ``condition()`` (or time out), then cancel it.
+
+    Returns whether the loop was still alive when the condition was checked —
+    a crashed loop (e.g. one that raised SystemExit) shows up as ``False``.
+    """
+    task = asyncio.create_task(credential_refresh_loop(startup_id, config, ticks))
+    try:
+        for _ in range(60):
+            if condition():
+                break
+            await asyncio.sleep(ticks)
+        return not task.done()
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_survives_bad_credentials_file(tmpdir, refresh_loop_process):
+    """An empty (mid-rewrite) credentials file must not kill the loop; valid
+    credentials written afterwards are picked up on a later tick."""
+    startup_id, _litestream_process, restarts = refresh_loop_process
+    creds_file = tmpdir / "creds.json"
+    creds_file.write_text("", encoding="utf-8")
+    config = LitestreamConfig(
+        credentials_file=str(creds_file), credentials_refresh_interval=0.05
+    )
+
+    async def scenario():
+        # Let a few failing ticks happen, then repair the file.
+        await asyncio.sleep(0.2)
+        creds_file.write_text(
+            json.dumps({"access-key-id": "AKIANEW", "secret-access-key": "newsecret"}),
+            encoding="utf-8",
+        )
+
+    repair = asyncio.ensure_future(scenario())
+    alive = await _run_refresh_loop_until(config, startup_id, lambda: restarts)
+    await repair
+    assert alive
+    assert restarts
+    assert restarts[0].access_key_id == "AKIANEW"
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_survives_failing_command(tmpdir, refresh_loop_process):
+    """A credentials command that fails on one tick and succeeds later must
+    not kill the loop."""
+    startup_id, _litestream_process, restarts = refresh_loop_process
+    creds_file = tmpdir / "creds.json"  # does not exist yet -> `cat` fails
+    config = LitestreamConfig(
+        credentials_command=f"cat {creds_file}", credentials_refresh_interval=0.05
+    )
+
+    async def scenario():
+        await asyncio.sleep(0.2)
+        creds_file.write_text(
+            json.dumps(
+                {"access-key-id": "AKIACMD2", "secret-access-key": "cmdsecret2"}
+            ),
+            encoding="utf-8",
+        )
+
+    repair = asyncio.ensure_future(scenario())
+    alive = await _run_refresh_loop_until(config, startup_id, lambda: restarts)
+    await repair
+    assert alive
+    assert restarts
+    assert restarts[0].access_key_id == "AKIACMD2"
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_restarts_downed_daemon(tmpdir, refresh_loop_process):
+    """After a failed restart left the daemon down, an unchanged-credentials
+    tick must still bring the daemon back."""
+    startup_id, litestream_process, restarts = refresh_loop_process
+    creds = Credentials(access_key_id="AKIASAME", secret_access_key="samesecret")
+    creds_file = tmpdir / "creds.json"
+    creds_file.write_text(
+        json.dumps({"access-key-id": "AKIASAME", "secret-access-key": "samesecret"}),
+        encoding="utf-8",
+    )
+    config = LitestreamConfig(
+        credentials_file=str(creds_file), credentials_refresh_interval=0.05
+    )
+    # Same hash as the file, and process is None (daemon down).
+    litestream_process.update_credentials(creds)
+    assert litestream_process.process is None
+
+    alive = await _run_refresh_loop_until(config, startup_id, lambda: restarts)
+    assert alive
+    assert restarts
+    assert restarts[0].access_key_id == "AKIASAME"
 
 
 # ---------------------------------------------------------------------------

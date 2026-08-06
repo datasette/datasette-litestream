@@ -121,6 +121,17 @@ async def test_credential_rotation_end_to_end(gateway, tmp_path):
         proc.client.sync(registered_path, wait=True, timeout=3)
     assert "InvalidAccessKeyId" in str(excinfo.value)
 
+    # Phase 2.5: an external agent rewriting the credentials file
+    # non-atomically leaves it briefly empty. The refresh loop must survive
+    # those failing ticks (it used to sys.exit and take down the server) and
+    # keep the last-known-good credentials in effect.
+    stale_hash = proc.current_credentials_hash
+    creds_path.write_text("", encoding="utf-8")
+    await asyncio.sleep(1.5)  # several 0.5s refresh ticks over the empty file
+    assert proc._refresh_task is not None
+    assert not proc._refresh_task.done()
+    assert proc.current_credentials_hash == stale_hash
+
     # Phase 3: rotate the credentials file to userB and wait for the refresh
     # loop to notice.
     old_hash = proc.current_credentials_hash

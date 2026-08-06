@@ -87,7 +87,14 @@ def extra_template_vars(datasette):
 async def credential_refresh_loop(
     startup_id: str, config: LitestreamConfig, interval_seconds: float
 ):
-    """Background task that periodically checks for credential changes."""
+    """Background task that periodically checks for credential changes.
+
+    Failures here are never fatal: the daemon keeps replicating with the
+    last-known-good credentials (valid until the provider expires them) and
+    the loop retries on the next tick. Taking down the whole Datasette
+    instance over a replication-credentials hiccup would be strictly worse.
+    """
+    consecutive_failures = 0
     while True:
         await asyncio.sleep(interval_seconds)
         try:
@@ -100,6 +107,9 @@ async def credential_refresh_loop(
                 continue
 
             new_hash = credentials_hash(new_creds)
+            # A daemon left down by an earlier failed restart must be brought
+            # back even when the credentials themselves did not change.
+            daemon_down = litestream_process.process is None
             if new_hash != litestream_process.current_credentials_hash:
                 print(
                     "datasette-litestream: credentials changed, restarting litestream",
@@ -108,13 +118,24 @@ async def credential_refresh_loop(
                 await asyncio.to_thread(
                     litestream_process.restart_with_new_credentials, new_creds
                 )
+            elif daemon_down:
+                print(
+                    "datasette-litestream: daemon is not running, restarting litestream",
+                    file=sys.stderr,
+                )
+                await asyncio.to_thread(
+                    litestream_process.restart_with_new_credentials, new_creds
+                )
+            consecutive_failures = 0
 
-        except Exception as e:  # noqa: BLE001 -- any failure here is fatal
+        except Exception as e:  # noqa: BLE001 -- never let a refresh failure kill the server
+            consecutive_failures += 1
             print(
-                f"datasette-litestream: fatal error refreshing credentials: {e}",
+                f"datasette-litestream: error refreshing credentials "
+                f"(consecutive failures: {consecutive_failures}), "
+                f"continuing with previous credentials: {e}",
                 file=sys.stderr,
             )
-            sys.exit(1)
 
 
 @hookimpl
