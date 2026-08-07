@@ -63,7 +63,9 @@ class CredentialsConfig(Credentials):
     file: str | None = None
     command: str | None = None
     # How often (seconds) to re-check the file/command for rotated credentials.
-    refresh_interval: float | None = None
+    # Floor of 1s: the check runs a subprocess or file read, and asyncio.sleep
+    # on a zero/negative interval would degenerate into a busy loop.
+    refresh_interval: float | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _check_options(self):

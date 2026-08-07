@@ -84,7 +84,10 @@ class UnregisterBody(TargetBody):
 
     # Seconds to wait for the daemon's final sync before giving up. The daemon
     # takes whole seconds; fractional values are rounded up on the wire.
-    timeout: float | None = Field(default=None, ge=0)
+    # gt=0: the daemon's protocol treats 0 as "use the default", the opposite
+    # of what a caller asking for zero wait means. allow_inf_nan: "inf" would
+    # otherwise pass ge and overflow math.ceil in the client.
+    timeout: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 # --- Response payloads ------------------------------------------------------

@@ -878,7 +878,7 @@ async def test_refresh_loop_survives_bad_credentials_file(tmpdir, refresh_loop_p
     creds_file = tmpdir / "creds.json"
     creds_file.write_text("", encoding="utf-8")
     config = LitestreamConfig(
-        credentials=CredentialsConfig(file=str(creds_file), refresh_interval=0.05)
+        credentials=CredentialsConfig(file=str(creds_file), refresh_interval=1)
     )
 
     async def scenario():
@@ -904,9 +904,7 @@ async def test_refresh_loop_survives_failing_command(tmpdir, refresh_loop_proces
     startup_id, _litestream_process, restarts = refresh_loop_process
     creds_file = tmpdir / "creds.json"  # does not exist yet -> `cat` fails
     config = LitestreamConfig(
-        credentials=CredentialsConfig(
-            command=f"cat {creds_file}", refresh_interval=0.05
-        )
+        credentials=CredentialsConfig(command=f"cat {creds_file}", refresh_interval=1)
     )
 
     async def scenario():
@@ -939,7 +937,7 @@ async def test_refresh_loop_fetch_runs_off_the_event_loop(refresh_loop_process):
         "print(json.dumps({'access-key-id': 'AKIA', 'secret-access-key': 's'}))\""
     )
     config = LitestreamConfig(
-        credentials=CredentialsConfig(command=command, refresh_interval=0.05)
+        credentials=CredentialsConfig(command=command, refresh_interval=1)
     )
 
     task = asyncio.create_task(credential_refresh_loop(startup_id, config, 0.01))
@@ -975,7 +973,7 @@ async def test_refresh_loop_restarts_downed_daemon(tmpdir, refresh_loop_process)
         encoding="utf-8",
     )
     config = LitestreamConfig(
-        credentials=CredentialsConfig(file=str(creds_file), refresh_interval=0.05)
+        credentials=CredentialsConfig(file=str(creds_file), refresh_interval=1)
     )
     # Same hash as the file, and process is None (daemon down).
     litestream_process.update_credentials(creds)

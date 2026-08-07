@@ -107,12 +107,21 @@ async def test_invalid_body_returns_400(body):
 
 
 @pytest.mark.asyncio
-async def test_negative_unregister_timeout_returns_400():
+@pytest.mark.parametrize(
+    "timeout",
+    [
+        -5,
+        0,  # daemon protocol reads 0 as "use the default", not "don't wait"
+        "inf",  # would overflow math.ceil in the client -> raw 500
+        "nan",
+    ],
+)
+async def test_unusable_unregister_timeouts_return_400(timeout):
     ds = Datasette(memory=True)
     await ds.invoke_startup()
     response = await ds.client.post(
         "/-/litestream/unregister",
-        json={"database": "data", "timeout": -5},
+        json={"database": "data", "timeout": timeout},
     )
     assert response.status_code == 400
     assert "error" in response.json()

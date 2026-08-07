@@ -129,6 +129,16 @@ def test_credentials_refresh_interval_alone_is_rejected():
         LitestreamConfig.model_validate({"credentials": {"refresh-interval": 60}})
 
 
+@pytest.mark.parametrize("interval", [-5, 0, 0.5])
+def test_credentials_refresh_interval_must_be_at_least_one_second(interval):
+    """Zero or negative would turn the refresh loop into a busy loop
+    (asyncio.sleep returns immediately); sub-second is close enough to count."""
+    with pytest.raises(ValidationError, match="greater than or equal to 1"):
+        LitestreamConfig.model_validate(
+            {"credentials": {"file": "/creds.json", "refresh-interval": interval}}
+        )
+
+
 def test_credentials_static_and_dynamic_are_mutually_exclusive():
     with pytest.raises(ValidationError, match="cannot be combined"):
         LitestreamConfig.model_validate(
