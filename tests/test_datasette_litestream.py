@@ -5,7 +5,9 @@ import os
 import sqlite3
 import stat
 import subprocess
+import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -922,6 +924,43 @@ async def test_refresh_loop_survives_failing_command(tmpdir, refresh_loop_proces
     assert alive
     assert restarts
     assert restarts[0].access_key_id == "AKIACMD2"
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_fetch_runs_off_the_event_loop(refresh_loop_process):
+    """A slow credentials command must not stall the event loop: the fetch
+    runs in a thread, so other coroutines keep being scheduled while it is
+    in flight."""
+    startup_id, _litestream_process, restarts = refresh_loop_process
+    # Single quotes only: the command goes through shlex.split, which would
+    # strip embedded double quotes out of a JSON literal.
+    command = (
+        f'{sys.executable} -c "import json, time; time.sleep(1); '
+        "print(json.dumps({'access-key-id': 'AKIA', 'secret-access-key': 's'}))\""
+    )
+    config = LitestreamConfig(
+        credentials=CredentialsConfig(command=command, refresh_interval=0.05)
+    )
+
+    task = asyncio.create_task(credential_refresh_loop(startup_id, config, 0.01))
+    try:
+        # Sample event-loop responsiveness while the ~1s fetch is in flight.
+        # If the fetch blocked the loop, one of these short sleeps would not
+        # resume until the subprocess finished, producing a ~1s gap.
+        start = time.monotonic()
+        previous = start
+        max_gap = 0.0
+        while time.monotonic() - start < 1.2:
+            await asyncio.sleep(0.02)
+            now = time.monotonic()
+            max_gap = max(max_gap, now - previous)
+            previous = now
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    assert max_gap < 0.5, f"event loop stalled for {max_gap:.2f}s during fetch"
+    assert restarts, "fetch never completed: loop broken, measurement is moot"
 
 
 @pytest.mark.asyncio

@@ -97,7 +97,10 @@ async def credential_refresh_loop(
             if litestream_process is None:
                 return  # Process no longer exists
 
-            new_creds = get_dynamic_credentials(config)
+            # In a thread: the file read / credentials command are blocking
+            # (the command alone may take up to its 30s subprocess timeout),
+            # and this loop shares the event loop with every request handler.
+            new_creds = await asyncio.to_thread(get_dynamic_credentials, config)
             if new_creds is None:
                 continue
 
