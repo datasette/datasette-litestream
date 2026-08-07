@@ -52,9 +52,15 @@ class LitestreamClient:
             timeout=self.timeout,
         )
 
-    def _request(self, method, path, *, json_body=None, params=None):
+    def _request(self, method, path, *, json_body=None, params=None, timeout=None):
         with self._client() as client:
-            response = client.request(method, path, json=json_body, params=params)
+            response = client.request(
+                method,
+                path,
+                json=json_body,
+                params=params,
+                timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+            )
         if response.status_code >= 400:
             error = None
             details = None
@@ -107,12 +113,19 @@ class LitestreamClient:
         ``"already_unregistered"`` if the database was not managed.
         """
         body = {"path": str(path)}
+        request_timeout = None
         if timeout is not None:
             # The daemon's timeout fields are Go ints (whole seconds) and 0
             # means "use the default" — round up so a fractional timeout
             # waits at least as long as requested instead of collapsing to 0.
             body["timeout"] = math.ceil(timeout)
-        return self._request("POST", "/unregister", json_body=body)
+            # Give the transport headroom over the daemon-side wait: with the
+            # fixed 30s client default, any longer requested timeout would be
+            # cut off by our own socket read before the daemon finished.
+            request_timeout = max(self.timeout, body["timeout"] + 5)
+        return self._request(
+            "POST", "/unregister", json_body=body, timeout=request_timeout
+        )
 
     def start(self, path, timeout=None):
         body = {"path": str(path)}

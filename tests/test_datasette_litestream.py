@@ -1214,7 +1214,7 @@ def test_client_rounds_fractional_timeouts_up(monkeypatch):
     client = LitestreamClient("/tmp/nonexistent.sock")
     captured = {}
 
-    def fake_request(method, path, *, json_body=None, params=None):
+    def fake_request(method, path, *, json_body=None, params=None, timeout=None):
         captured[path] = json_body
         return {}
 
@@ -1271,6 +1271,111 @@ async def test_routes_return_503_while_daemon_restarting(tmpdir):
         payload = response.json()
         assert payload["ok"] is False
         assert ActionResult.model_validate(payload).ok is False
+
+
+# ---------------------------------------------------------------------------
+# Registered-state maps stay truthful (unregister timeout, already_registered)
+# ---------------------------------------------------------------------------
+
+
+def _tracked_process(client):
+    proc = LitestreamProcess()
+    proc.client = cast(LitestreamClient, client)
+    proc.registered["/data/x.db"] = "s3://bucket/old"
+    proc.registered_names["x"] = "/data/x.db"
+    return proc
+
+
+def test_unregister_read_timeout_still_prunes_state():
+    """A read timeout means the daemon took the request and will finish the
+    unregister on its own; keeping the map entry would let a later rotation
+    restart silently re-register a database the operator removed."""
+
+    class ReadTimeoutClient(FakeClient):
+        def unregister(self, path, timeout=None):
+            raise httpx.ReadTimeout("read timed out")
+
+    proc = _tracked_process(ReadTimeoutClient())
+    with pytest.raises(httpx.ReadTimeout):
+        proc.unregister_db("/data/x.db", timeout=60)
+    assert proc.registered == {}
+    assert proc.registered_names == {}
+
+
+def test_unregister_connect_timeout_keeps_state():
+    """A connect timeout means the daemon never saw the request — its state
+    is unchanged, so ours must be too."""
+
+    class ConnectTimeoutClient(FakeClient):
+        def unregister(self, path, timeout=None):
+            raise httpx.ConnectTimeout("connect timed out")
+
+    proc = _tracked_process(ConnectTimeoutClient())
+    with pytest.raises(httpx.ConnectTimeout):
+        proc.unregister_db("/data/x.db", timeout=60)
+    assert proc.registered == {"/data/x.db": "s3://bucket/old"}
+    assert proc.registered_names == {"x": "/data/x.db"}
+
+
+def test_register_already_registered_keeps_existing_url():
+    """The daemon keeps its existing replica on already_registered; recording
+    the caller's URL would misreport state and make the next rotation restart
+    actually switch destinations."""
+
+    class AlreadyRegisteredClient(FakeClient):
+        def register(self, path, url):
+            return {"status": "already_registered"}
+
+    proc = _tracked_process(AlreadyRegisteredClient())
+    result = proc.register_db("/data/x.db", "s3://bucket/new", name="x")
+    assert result["status"] == "already_registered"
+    assert proc.registered["/data/x.db"] == "s3://bucket/old"
+
+
+def test_unregister_transport_timeout_gets_headroom(monkeypatch):
+    """The per-request transport timeout must exceed the daemon-side wait, or
+    a >30s final sync gets cut off by our own socket read."""
+    client = LitestreamClient("/tmp/does-not-matter.sock")
+    captured = {}
+
+    def fake_request(method, path, *, json_body=None, params=None, timeout=None):
+        captured["body"] = json_body
+        captured["timeout"] = timeout
+        return {}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    client.unregister("/db", timeout=60)
+    assert captured["body"]["timeout"] == 60
+    assert captured["timeout"] == 65
+    client.unregister("/db", timeout=1)
+    # Never below the client default.
+    assert captured["timeout"] == 30
+    client.unregister("/db")
+    assert captured["timeout"] is None
+
+
+@pytest.mark.asyncio
+async def test_register_route_reports_daemon_replica_on_already_registered(tmpdir):
+    class AlreadyRegisteredClient(FakeClient):
+        def register(self, path, url):
+            return {"status": "already_registered"}
+
+    datasette, proc = await _datasette_with_fake_process(
+        tmpdir, cast(LitestreamClient, AlreadyRegisteredClient())
+    )
+    db_path = str(Path(str(tmpdir / "data.db")).resolve())
+    proc.registered[db_path] = "s3://bucket/old"
+    headers = await root_token(datasette)
+    response = await datasette.client.post(
+        "/-/litestream/register",
+        json={"database": "data", "replica": "file:///tmp/replica-new"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "already_registered"
+    # The response reflects the replica the daemon is actually using.
+    assert payload["replica"] == "s3://bucket/old"
 
 
 class TimeoutClient(FakeClient):

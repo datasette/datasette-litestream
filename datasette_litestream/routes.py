@@ -353,7 +353,10 @@ async def litestream_register(
             "database": db_name,
             "internal": body.internal,
             "path": db_path,
-            "replica": replica_url,
+            # From the post-registration map, not the request: on
+            # already_registered the daemon kept its earlier replica URL,
+            # and the response must not claim one it isn't using.
+            "replica": litestream_process.registered.get(db_path),
             "status": result.get("status"),
         }
     )

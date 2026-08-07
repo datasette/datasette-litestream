@@ -17,6 +17,7 @@ import threading
 import time
 from pathlib import Path
 
+import httpx
 from datasette.utils import StartupError
 from pydantic import ValidationError
 
@@ -380,7 +381,12 @@ class LitestreamProcess:
         """Register a database for replication over the control socket."""
         with self._lock:
             result = self._require_client().register(db_path, replica_url)
-            self.registered[str(db_path)] = replica_url
+            if result.get("status") != "already_registered":
+                self.registered[str(db_path)] = replica_url
+            # already_registered: the daemon kept its existing replica URL, so
+            # recording the caller's would misreport what is replicating where
+            # — and a later rotation restart would then actually switch the
+            # destination. The map keeps (or lacks) the URL the daemon uses.
             if name is not None:
                 self.registered_names[name] = str(db_path)
             return result
@@ -388,12 +394,26 @@ class LitestreamProcess:
     def unregister_db(self, db_path: str, timeout=None) -> dict:
         """Unregister a database; the daemon performs a final sync first."""
         with self._lock:
-            result = self._require_client().unregister(db_path, timeout=timeout)
-            self.registered.pop(str(db_path), None)
-            self.registered_names = {
-                n: p for n, p in self.registered_names.items() if p != str(db_path)
-            }
+            try:
+                result = self._require_client().unregister(db_path, timeout=timeout)
+            except httpx.ReadTimeout:
+                # The daemon received the request and completes the final
+                # sync + unregister on its own schedule; only the response
+                # outlived our socket read. Prune the maps anyway so a later
+                # rotation restart cannot silently re-register a database the
+                # operator removed. (Connect/write timeouts are not caught:
+                # there the daemon never took the request, so its state — and
+                # our map — are unchanged.)
+                self._forget_db_locked(db_path)
+                raise
+            self._forget_db_locked(db_path)
             return result
+
+    def _forget_db_locked(self, db_path) -> None:
+        self.registered.pop(str(db_path), None)
+        self.registered_names = {
+            n: p for n, p in self.registered_names.items() if p != str(db_path)
+        }
 
     def _reregister_all_locked(self):
         """Re-register every known database (used after a daemon restart)."""
