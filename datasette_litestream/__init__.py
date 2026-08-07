@@ -30,6 +30,7 @@ from .process import (
     LitestreamProcess,
     credentials_hash,
     get_dynamic_credentials,
+    get_process,
     processes,
 )
 from .replicas import internal_database_path, resolve_replica_url
@@ -60,8 +61,11 @@ def menu_links(datasette, actor):
     async def inner():
         if (
             await datasette.allowed(actor=actor, action=VIEW_STATUS_ACTION)
-            # TODO why is this needed?
-            and datasette.plugin_config("datasette-litestream") is not None
+            # Only link the page when this instance actually started a
+            # daemon. Top-level plugin_config() misses instances configured
+            # solely at the database level (databases.<name>.plugins...),
+            # which run a daemon but got no menu entry.
+            and get_process(datasette) is not None
         ):
             return [
                 {

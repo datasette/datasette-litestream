@@ -106,6 +106,42 @@ async def test_api_status_payload(litestream_binary, tmpdir):
 
 
 @pytest.mark.asyncio
+async def test_menu_link_shown_for_db_level_only_config(litestream_binary, tmpdir):
+    """Database-level-only configuration runs a daemon, so the menu must link
+    the admin page (top-level plugin_config() is None for this shape)."""
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+    ds = Datasette(
+        [db_path],
+        config={
+            "databases": {
+                "data": {
+                    "plugins": {
+                        "datasette-litestream": {
+                            "replica": "file://" + str(backups) + "/data"
+                        }
+                    }
+                }
+            }
+        },
+    )
+    ds.root_enabled = True
+    await ds.invoke_startup()
+    response = await ds.client.get("/", cookies=root_cookies(ds))
+    assert "/-/litestream" in response.text
+
+
+@pytest.mark.asyncio
+async def test_menu_link_absent_when_unconfigured():
+    ds = Datasette(memory=True)
+    ds.root_enabled = True
+    await ds.invoke_startup()
+    response = await ds.client.get("/", cookies=root_cookies(ds))
+    assert "/-/litestream" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_api_status_not_running():
     """No plugin config -> no daemon -> status reports running False."""
     ds = Datasette(memory=True)
