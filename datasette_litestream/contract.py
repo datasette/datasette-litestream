@@ -24,6 +24,29 @@ ALLOWED_REPLICA_SCHEMES = {
     "webdavs",
 }
 
+
+def validate_replica_url(value: str) -> str:
+    """Check the URL's scheme against litestream's supported set.
+
+    Returns the URL with its scheme lowercased (RFC 3986 schemes are
+    case-insensitive; the daemon's factory lookup and our own equality
+    checks — e.g. restrict-runtime-replicas — are not). Raises ValueError
+    with a user-facing message otherwise. Shared by the register API's
+    body validation and startup validation of configured URLs.
+    """
+    scheme, sep, rest = value.partition("://")
+    if not sep or not scheme:
+        raise ValueError(
+            "replica URL must include an explicit scheme, e.g. 's3://' or 'file://'"
+        )
+    if scheme.lower() not in ALLOWED_REPLICA_SCHEMES:
+        raise ValueError(
+            f"unsupported replica URL scheme '{scheme}'; allowed schemes: "
+            + ", ".join(sorted(ALLOWED_REPLICA_SCHEMES))
+        )
+    return scheme.lower() + "://" + rest
+
+
 # --- Request bodies ---------------------------------------------------------
 
 
@@ -66,17 +89,7 @@ class RegisterBody(TargetBody):
         if not value:
             # Same meaning as omitting the field: use the configured replica.
             return None
-        scheme, sep, _ = value.partition("://")
-        if not sep or not scheme:
-            raise ValueError(
-                "replica URL must include an explicit scheme, e.g. 's3://' or 'file://'"
-            )
-        if scheme.lower() not in ALLOWED_REPLICA_SCHEMES:
-            raise ValueError(
-                f"unsupported replica URL scheme '{scheme}'; allowed schemes: "
-                + ", ".join(sorted(ALLOWED_REPLICA_SCHEMES))
-            )
-        return value
+        return validate_replica_url(value)
 
 
 class UnregisterBody(TargetBody):

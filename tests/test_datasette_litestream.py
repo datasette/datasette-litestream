@@ -23,7 +23,7 @@ from pydantic import ValidationError
 
 import datasette_litestream.process
 from datasette_litestream import credential_refresh_loop
-from datasette_litestream._client import LitestreamClient
+from datasette_litestream._client import LitestreamClient, LitestreamControlError
 from datasette_litestream.config import (
     Credentials,
     CredentialsConfig,
@@ -1284,6 +1284,67 @@ def _tracked_process(client):
     proc.registered["/data/x.db"] = "s3://bucket/old"
     proc.registered_names["x"] = "/data/x.db"
     return proc
+
+
+@pytest.mark.asyncio
+async def test_bad_config_replica_scheme_fails_startup(tmpdir):
+    """A typo'd scheme in config must be a clean StartupError naming the
+    database, raised before any daemon is started."""
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    datasette = Datasette(
+        [db_path],
+        config={
+            "databases": {
+                "data": {
+                    "plugins": {
+                        "datasette-litestream": {"replica": "gopher://bucket/x"}
+                    }
+                }
+            }
+        },
+    )
+    before = set(processes)
+    with pytest.raises(StartupError, match="database 'data'.*gopher"):
+        await datasette.invoke_startup()
+    assert set(processes) == before  # nothing registered, nothing leaked
+
+
+@pytest.mark.asyncio
+async def test_startup_registration_failure_tears_down(
+    litestream_binary, tmpdir, monkeypatch
+):
+    """A daemon that rejects a startup registration must not leave a running
+    child, an open log handle or a registry entry behind."""
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    captured = {}
+
+    def boom(self, db_path, replica_url, name=None):
+        captured["proc"] = self
+        raise LitestreamControlError("replica rejected", status_code=400)
+
+    monkeypatch.setattr(LitestreamProcess, "register_db", boom)
+    datasette = Datasette(
+        [db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
+                }
+            }
+        },
+    )
+    before = set(processes)
+    with pytest.raises(StartupError, match="rejected"):
+        await datasette.invoke_startup()
+    assert set(processes) == before
+    proc = captured["proc"]
+    assert proc.process is None
+    assert proc.logfile.closed
+    assert proc.startup_id is None
 
 
 def test_daemon_alive_property():

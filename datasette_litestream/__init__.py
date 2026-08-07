@@ -14,6 +14,7 @@ import sys
 import uuid
 from pathlib import Path
 
+import httpx
 from datasette import hookimpl
 from datasette.permissions import Action
 from datasette.utils import StartupError
@@ -21,7 +22,9 @@ from datasette_vite import vite_entry
 from pydantic import ValidationError
 
 from . import routes  # noqa: F401  (imports register the route handlers)
+from ._client import LitestreamControlError
 from .config import LitestreamConfig, get_config, get_database_config
+from .contract import validate_replica_url
 from .process import (
     DATASETTE_LITESTREAM_PROCESS_KEY,
     LitestreamProcess,
@@ -250,6 +253,21 @@ def startup(datasette):
     if not plugin_config_top and len(initial) == 0:
         return
 
+    # Validate every resolved replica URL before the daemon starts: a typo'd
+    # scheme should be a clean startup error, not a control-socket traceback
+    # after some databases are already replicating. (The register API applies
+    # the same check to caller-supplied URLs.)
+    def _validated(db_name, db_path, replica_url):
+        label = f"database '{db_name}'" if db_name is not None else "internal database"
+        try:
+            return (db_name, db_path, validate_replica_url(replica_url))
+        except ValueError as e:
+            raise StartupError(
+                f"datasette-litestream: {label}: {e} (URL: {replica_url!r})"
+            ) from e
+
+    initial = [_validated(*entry) for entry in initial]
+
     # Constructed only now that we know the plugin will run: __init__ opens
     # the log destination (possibly the operator's configured log file).
     litestream_process = LitestreamProcess(logging_config=config.logging)
@@ -263,9 +281,23 @@ def startup(datasette):
     processes[startup_id] = litestream_process
     setattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, startup_id)
 
-    litestream_process.start_daemon()
-    for db_name, db_path, replica_url in initial:
-        litestream_process.register_db(db_path, replica_url, name=db_name)
+    try:
+        litestream_process.start_daemon()
+        for db_name, db_path, replica_url in initial:
+            try:
+                litestream_process.register_db(db_path, replica_url, name=db_name)
+            except (LitestreamControlError, httpx.HTTPError, RuntimeError) as e:
+                raise StartupError(
+                    "datasette-litestream: the litestream daemon rejected "
+                    f"database '{db_name or db_path}' ({replica_url}): {e}"
+                ) from e
+    except BaseException:
+        # Datasette aborts startup on the raised error; don't leave a daemon
+        # child, an open log handle or a registry entry behind. (stop_daemon
+        # is final teardown: it also closes the logfile and prunes the
+        # registry entry.)
+        litestream_process.stop_daemon()
+        raise
 
     # Schedule credential refresh if using dynamic credentials. The interval
     # is re-checked here (the model validator guarantees it) to narrow away None.

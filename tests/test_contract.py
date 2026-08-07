@@ -7,7 +7,12 @@ from conftest import table
 from datasette.app import Datasette
 
 import datasette_litestream.routes  # noqa: F401  (registers the handlers)
-from datasette_litestream.contract import ActionResult, Status
+from datasette_litestream.contract import (
+    ActionResult,
+    RegisterBody,
+    Status,
+    validate_replica_url,
+)
 from datasette_litestream.router import router
 
 actor_root = {"a": {"id": "root"}}
@@ -104,6 +109,20 @@ async def test_invalid_body_returns_400(body):
     payload = response.json()
     assert "error" in payload
     assert isinstance(payload["errors"], list)
+
+
+def test_replica_scheme_is_case_normalized():
+    """RFC 3986 schemes are case-insensitive, but the daemon's factory lookup
+    and our restrict-runtime-replicas equality check are not — normalize."""
+    assert (
+        RegisterBody(database="x", replica="S3://bucket/data").replica
+        == "s3://bucket/data"
+    )
+    assert validate_replica_url("FILE:///tmp/x") == "file:///tmp/x"
+    with pytest.raises(ValueError, match="unsupported replica URL scheme"):
+        validate_replica_url("gopher://x")
+    with pytest.raises(ValueError, match="explicit scheme"):
+        validate_replica_url("bucket/no-scheme")
 
 
 @pytest.mark.asyncio
