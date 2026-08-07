@@ -182,6 +182,10 @@ async def _build_status(datasette, litestream_process, can_manage):
             }
         )
 
+    warnings = list(litestream_process.warnings)
+    if litestream_process.health_warning:
+        warnings.append(litestream_process.health_warning)
+
     return {
         # Honest liveness (poll() based): a crashed daemon or a failed
         # rotation restart must not report running=true with a null payload.
@@ -192,7 +196,7 @@ async def _build_status(datasette, litestream_process, can_manage):
         "socket_error": socket_error,
         "databases": managed,
         "available": available,
-        "warnings": litestream_process.warnings,
+        "warnings": warnings,
     }
 
 

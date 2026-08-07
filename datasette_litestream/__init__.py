@@ -86,36 +86,50 @@ def extra_template_vars(datasette):
     return {"datasette_litestream_vite_entry": entry}
 
 
-async def credential_refresh_loop(
+# Health-loop tick for instances without dynamic credentials (which use
+# their refresh-interval as the tick instead).
+HEALTH_INTERVAL_SECONDS = 30.0
+
+
+async def health_loop(
     startup_id: str, config: LitestreamConfig, interval_seconds: float
 ):
-    """Background task that periodically checks for credential changes.
+    """Background supervisor for the litestream daemon.
+
+    Each tick, in order: with dynamic credentials configured, fetch them and
+    restart the daemon when they changed; restart a daemon that is not
+    running (crashed, or left down by an earlier failed restart); otherwise
+    reconcile the daemon's database list against ``registered``,
+    re-registering anything missing (heals a partial re-registration after a
+    rotation restart).
 
     Failures here are never fatal: the daemon keeps replicating with the
     last-known-good credentials (valid until the provider expires them) and
     the loop retries on the next tick. Taking down the whole Datasette
-    instance over a replication-credentials hiccup would be strictly worse.
+    instance over a replication hiccup would be strictly worse. Repeated
+    failures are surfaced as a warning on the admin page so a crash-looping
+    binary or a broken credentials source is visible.
     """
     consecutive_failures = 0
     while True:
         await asyncio.sleep(interval_seconds)
+        litestream_process = processes.get(startup_id)
+        if litestream_process is None:
+            return  # Process no longer exists
         try:
-            litestream_process = processes.get(startup_id)
-            if litestream_process is None:
-                return  # Process no longer exists
+            new_creds = None
+            if config.credentials.uses_dynamic:
+                # In a thread: the file read / credentials command are
+                # blocking (the command alone may take up to its 30s
+                # subprocess timeout), and this loop shares the event loop
+                # with every request handler.
+                new_creds = await asyncio.to_thread(get_dynamic_credentials, config)
 
-            # In a thread: the file read / credentials command are blocking
-            # (the command alone may take up to its 30s subprocess timeout),
-            # and this loop shares the event loop with every request handler.
-            new_creds = await asyncio.to_thread(get_dynamic_credentials, config)
-            if new_creds is None:
-                continue
-
-            new_hash = credentials_hash(new_creds)
-            # A daemon left down by an earlier failed restart must be brought
-            # back even when the credentials themselves did not change.
-            daemon_down = litestream_process.process is None
-            if new_hash != litestream_process.current_credentials_hash:
+            if (
+                new_creds is not None
+                and credentials_hash(new_creds)
+                != litestream_process.current_credentials_hash
+            ):
                 print(
                     "datasette-litestream: credentials changed, restarting litestream",
                     file=sys.stderr,
@@ -123,22 +137,41 @@ async def credential_refresh_loop(
                 await asyncio.to_thread(
                     litestream_process.restart_with_new_credentials, new_creds
                 )
-            elif daemon_down:
+            elif not litestream_process.daemon_alive:
                 print(
                     "datasette-litestream: daemon is not running, restarting litestream",
                     file=sys.stderr,
                 )
                 await asyncio.to_thread(
-                    litestream_process.restart_with_new_credentials, new_creds
+                    litestream_process.restart_with_new_credentials,
+                    new_creds
+                    if new_creds is not None
+                    else litestream_process.credentials,
                 )
+            else:
+                healed = await asyncio.to_thread(
+                    litestream_process.reconcile_registrations
+                )
+                for path in healed:
+                    print(
+                        f"datasette-litestream: re-registered {path} with the "
+                        "daemon (was missing from its database list)",
+                        file=sys.stderr,
+                    )
             consecutive_failures = 0
+            litestream_process.health_warning = None
 
-        except Exception as e:  # noqa: BLE001 -- never let a refresh failure kill the server
+        except Exception as e:  # noqa: BLE001 -- never let a health failure kill the server
             consecutive_failures += 1
+            if consecutive_failures >= 3:
+                litestream_process.health_warning = (
+                    f"litestream health checks are failing "
+                    f"({consecutive_failures} consecutive): {e}"
+                )
             print(
-                f"datasette-litestream: error refreshing credentials "
+                f"datasette-litestream: health check failed "
                 f"(consecutive failures: {consecutive_failures}), "
-                f"continuing with previous credentials: {e}",
+                f"will retry: {e}",
                 file=sys.stderr,
             )
 
@@ -303,11 +336,13 @@ def startup(datasette):
         litestream_process.stop_daemon()
         raise
 
-    # Schedule credential refresh if using dynamic credentials. The interval
-    # is re-checked here (the model validator guarantees it) to narrow away None.
+    # Supervision runs whenever a daemon does: with dynamic credentials the
+    # loop doubles as the refresh loop on that interval; otherwise it ticks
+    # at the fixed health interval (crash restart + registration reconcile).
     if config.credentials.uses_dynamic and config.credentials.refresh_interval:
-        litestream_process._refresh_task = asyncio.create_task(
-            credential_refresh_loop(
-                startup_id, config, config.credentials.refresh_interval
-            )
-        )
+        interval = config.credentials.refresh_interval
+    else:
+        interval = HEALTH_INTERVAL_SECONDS
+    litestream_process._refresh_task = asyncio.create_task(
+        health_loop(startup_id, config, interval)
+    )

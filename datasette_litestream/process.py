@@ -159,6 +159,10 @@ class LitestreamProcess:
         self.registered_names = {}
         # Startup warnings (e.g. in-memory databases), surfaced on the admin page.
         self.warnings = []
+        # Set by the health loop after repeated failures (e.g. a
+        # crash-looping binary); shown on the admin page, cleared on the
+        # next healthy tick.
+        self.health_warning = None
         # The logfile receives the daemon's stderr (litestream is configured
         # with ``logging.stderr: true``, so all its log output lands here).
         # The handle stays open for the daemon's lifetime: it is passed to
@@ -422,6 +426,25 @@ class LitestreamProcess:
                 raise
             self._forget_db_locked(db_path)
             return result
+
+    def reconcile_registrations(self) -> list[str]:
+        """Re-register every ``registered`` database the daemon doesn't list.
+
+        Heals drift between our map and the daemon — most importantly a
+        partial ``_reregister_all_locked`` after a rotation restart, whose
+        skipped databases would otherwise stay silently unreplicated forever
+        (the next tick sees matching credentials and a live daemon, so
+        nothing retries). Returns the re-registered paths.
+        """
+        with self._lock:
+            client = self._require_client()
+            managed = {entry.get("path") for entry in client.list_databases()}
+            healed = []
+            for db_path, replica_url in list(self.registered.items()):
+                if db_path not in managed:
+                    client.register(db_path, replica_url)
+                    healed.append(db_path)
+            return healed
 
     def _forget_db_locked(self, db_path) -> None:
         self.registered.pop(str(db_path), None)

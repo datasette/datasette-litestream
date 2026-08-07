@@ -22,7 +22,7 @@ from datasette.utils import StartupError
 from pydantic import ValidationError
 
 import datasette_litestream.process
-from datasette_litestream import credential_refresh_loop
+from datasette_litestream import health_loop
 from datasette_litestream._client import LitestreamClient, LitestreamControlError
 from datasette_litestream.config import (
     Credentials,
@@ -857,7 +857,7 @@ async def _run_refresh_loop_until(config, startup_id, condition, ticks=0.05):
     Returns whether the loop was still alive when the condition was checked —
     a crashed loop (e.g. one that raised SystemExit) shows up as ``False``.
     """
-    task = asyncio.create_task(credential_refresh_loop(startup_id, config, ticks))
+    task = asyncio.create_task(health_loop(startup_id, config, ticks))
     try:
         for _ in range(60):
             if condition():
@@ -940,7 +940,7 @@ async def test_refresh_loop_fetch_runs_off_the_event_loop(refresh_loop_process):
         credentials=CredentialsConfig(command=command, refresh_interval=1)
     )
 
-    task = asyncio.create_task(credential_refresh_loop(startup_id, config, 0.01))
+    task = asyncio.create_task(health_loop(startup_id, config, 0.01))
     try:
         # Sample event-loop responsiveness while the ~1s fetch is in flight.
         # If the fetch blocked the loop, one of these short sleeps would not
@@ -983,6 +983,119 @@ async def test_refresh_loop_restarts_downed_daemon(tmpdir, refresh_loop_process)
     assert alive
     assert restarts
     assert restarts[0].access_key_id == "AKIASAME"
+
+
+# ---------------------------------------------------------------------------
+# Health loop: supervision without dynamic credentials
+# ---------------------------------------------------------------------------
+
+
+def _alive_stub():
+    return cast(subprocess.Popen, SimpleNamespace(poll=lambda: None))
+
+
+@pytest.mark.asyncio
+async def test_health_loop_restarts_crashed_daemon_with_static_credentials(
+    refresh_loop_process,
+):
+    """No dynamic credentials configured: a crashed child (poll() returns an
+    exit code) must still be restarted with the current credentials."""
+    startup_id, litestream_process, restarts = refresh_loop_process
+    litestream_process.credentials = Credentials(
+        access_key_id="AKIASTATIC", secret_access_key="s"
+    )
+    litestream_process.process = cast(
+        subprocess.Popen, SimpleNamespace(poll=lambda: 137)
+    )
+    config = LitestreamConfig()  # static credentials, no refresh source
+
+    alive = await _run_refresh_loop_until(config, startup_id, lambda: restarts)
+    assert alive
+    assert restarts
+    assert restarts[0].access_key_id == "AKIASTATIC"
+
+
+@pytest.mark.asyncio
+async def test_health_loop_reconciles_missing_registrations(refresh_loop_process):
+    """A live daemon whose database list lacks entries from `registered` gets
+    them re-registered — heals a partial re-registration after a restart."""
+    startup_id, litestream_process, _restarts = refresh_loop_process
+
+    class ReconcileClient:
+        def __init__(self):
+            self.registered_calls = []
+
+        def list_databases(self):
+            return [{"path": "/data/present.db"}]
+
+        def register(self, path, url):
+            self.registered_calls.append((path, url))
+            return {"status": "registered"}
+
+    client = ReconcileClient()
+    litestream_process.client = cast(LitestreamClient, client)
+    litestream_process.process = _alive_stub()
+    litestream_process.registered = {
+        "/data/present.db": "s3://bucket/present",
+        "/data/missing.db": "s3://bucket/missing",
+    }
+    config = LitestreamConfig()
+
+    alive = await _run_refresh_loop_until(
+        config, startup_id, lambda: client.registered_calls
+    )
+    assert alive
+    assert client.registered_calls == [("/data/missing.db", "s3://bucket/missing")]
+
+
+@pytest.mark.asyncio
+async def test_health_loop_sets_and_clears_health_warning(tmpdir, refresh_loop_process):
+    """Three consecutive failures surface a warning for the admin page; the
+    next healthy tick clears it."""
+    startup_id, litestream_process, _restarts = refresh_loop_process
+    creds_file = tmpdir / "creds.json"  # missing -> fetch raises
+    config = LitestreamConfig(
+        credentials=CredentialsConfig(file=str(creds_file), refresh_interval=1)
+    )
+
+    alive = await _run_refresh_loop_until(
+        config, startup_id, lambda: litestream_process.health_warning
+    )
+    assert alive
+    assert "failing" in litestream_process.health_warning
+
+    # Repair the source; a healthy tick clears the warning.
+    creds_file.write_text(
+        json.dumps({"access-key-id": "AKIAOK", "secret-access-key": "ok"}),
+        encoding="utf-8",
+    )
+    alive = await _run_refresh_loop_until(
+        config, startup_id, lambda: litestream_process.health_warning is None
+    )
+    assert alive
+    assert litestream_process.health_warning is None
+
+
+@pytest.mark.asyncio
+async def test_health_loop_runs_with_static_credentials(litestream_binary, tmpdir):
+    """The supervisor task exists even without a dynamic credential source."""
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+    datasette = Datasette(
+        [db_path],
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
+                }
+            }
+        },
+    )
+    await datasette.invoke_startup()
+    litestream_process = get_process(datasette)
+    assert litestream_process._refresh_task is not None
+    assert not litestream_process._refresh_task.done()
 
 
 # ---------------------------------------------------------------------------
