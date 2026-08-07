@@ -24,7 +24,9 @@ jobs:
       - id: cache-litestream
         uses: actions/cache@v3
         with:
-          path: $HOME/.local/bin/litestream
+          # actions/cache expands `~` but NOT shell variables like $HOME —
+          # a $HOME path silently never restores or saves.
+          path: ~/.local/bin/litestream
           key: ${{ runner.os }}-litestream-0.5.12
       - run: mkdir -p $HOME/.local/bin
       - if: steps.cache-litestream.outputs.cache-hit != 'true'
