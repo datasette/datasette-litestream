@@ -42,6 +42,14 @@ types-routes:
   # stay optional in the generated types.
   npx --prefix frontend openapi-typescript "$tmp" --default-non-nullable=false > frontend/api.d.ts
 
+# Sync every contract artifact after changing contract.py or route
+# signatures: the OpenAPI snapshot that tests compare against, and the
+# generated frontend/api.d.ts. Commit both together.
+contract-sync: types-routes
+  uv run python -c \
+      'from datasette_litestream.router import router; import datasette_litestream.routes; import json; print(json.dumps(router.openapi_document_json(), indent=2))' \
+      > tests/openapi-snapshot.json
+
 # Format Python code (ruff)
 format-backend *flags:
   uv run ruff format datasette_litestream tests {{flags}}

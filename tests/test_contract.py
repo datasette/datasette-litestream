@@ -2,6 +2,9 @@
 frontend types are generated from, request-body validation, and that live
 endpoint payloads actually validate against the contract models."""
 
+import json
+from pathlib import Path
+
 import pytest
 from conftest import table
 from datasette.app import Datasette
@@ -79,6 +82,24 @@ def test_openapi_document_covers_all_routes():
     # Nested models referenced by Status land in components.schemas.
     assert {"DaemonInfo", "ManagedDatabase", "AvailableDatabase"} <= set(
         doc.get("components", {}).get("schemas", {})
+    )
+
+
+def test_openapi_document_matches_snapshot():
+    """frontend/api.d.ts is generated from this document but nothing rebuilds
+    it automatically — this snapshot makes a contract change that skips
+    regeneration fail CI instead of shipping a silently stale api.d.ts.
+
+    On an intentional contract change, run `just contract-sync` to refresh
+    both the snapshot and frontend/api.d.ts, and commit them together.
+    """
+    snapshot_path = Path(__file__).parent / "openapi-snapshot.json"
+    document = router.openapi_document_json()
+    snapshot = json.loads(snapshot_path.read_text())
+    assert document == snapshot, (
+        "The OpenAPI contract no longer matches tests/openapi-snapshot.json. "
+        "If the change is intentional, run `just contract-sync` and commit "
+        "the regenerated snapshot and frontend/api.d.ts."
     )
 
 

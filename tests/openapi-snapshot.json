@@ -1,0 +1,1132 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "datasette-litestream",
+    "version": "0.3a0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8001"
+    }
+  ],
+  "paths": {
+    "/-/litestream": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/-/litestream/api/status": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Payload of GET /-/litestream/api/status.\n\nOnly ``running`` is always present. When the plugin never started a\ndaemon the endpoint returns ``{\"running\": false}`` and nothing else;\nwhen the daemon was started but has died (crash, failed rotation\nrestart), ``running`` is false and the rest of the payload \u2014 warnings,\navailable databases \u2014 is still populated so the UI can show context.",
+                  "properties": {
+                    "running": {
+                      "title": "Running",
+                      "type": "boolean"
+                    },
+                    "can_manage": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Can Manage"
+                    },
+                    "metrics_enabled": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Metrics Enabled"
+                    },
+                    "daemon": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/DaemonInfo"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "socket_error": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Socket Error"
+                    },
+                    "databases": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/components/schemas/ManagedDatabase"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Databases"
+                    },
+                    "available": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/components/schemas/AvailableDatabase"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Available"
+                    },
+                    "warnings": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Warnings"
+                    }
+                  },
+                  "required": [
+                    "running"
+                  ],
+                  "title": "Status",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/-/litestream/api/sync": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Payload of the POST endpoints (sync/start/stop/register/unregister).",
+                  "properties": {
+                    "ok": {
+                      "title": "Ok",
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Error"
+                    },
+                    "details": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Details"
+                    },
+                    "database": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Database"
+                    },
+                    "internal": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Internal"
+                    },
+                    "path": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Path"
+                    },
+                    "replica": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Replica"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Status"
+                    },
+                    "txid": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Txid"
+                    },
+                    "result": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Result"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "title": "ActionResult",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Body for sync/start/stop.",
+                "properties": {
+                  "database": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Database"
+                  },
+                  "internal": {
+                    "default": false,
+                    "title": "Internal",
+                    "type": "boolean"
+                  }
+                },
+                "title": "DbActionBody",
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/-/litestream/api/start": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Payload of the POST endpoints (sync/start/stop/register/unregister).",
+                  "properties": {
+                    "ok": {
+                      "title": "Ok",
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Error"
+                    },
+                    "details": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Details"
+                    },
+                    "database": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Database"
+                    },
+                    "internal": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Internal"
+                    },
+                    "path": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Path"
+                    },
+                    "replica": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Replica"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Status"
+                    },
+                    "txid": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Txid"
+                    },
+                    "result": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Result"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "title": "ActionResult",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Body for sync/start/stop.",
+                "properties": {
+                  "database": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Database"
+                  },
+                  "internal": {
+                    "default": false,
+                    "title": "Internal",
+                    "type": "boolean"
+                  }
+                },
+                "title": "DbActionBody",
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/-/litestream/api/stop": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Payload of the POST endpoints (sync/start/stop/register/unregister).",
+                  "properties": {
+                    "ok": {
+                      "title": "Ok",
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Error"
+                    },
+                    "details": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Details"
+                    },
+                    "database": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Database"
+                    },
+                    "internal": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Internal"
+                    },
+                    "path": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Path"
+                    },
+                    "replica": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Replica"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Status"
+                    },
+                    "txid": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Txid"
+                    },
+                    "result": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Result"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "title": "ActionResult",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Body for sync/start/stop.",
+                "properties": {
+                  "database": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Database"
+                  },
+                  "internal": {
+                    "default": false,
+                    "title": "Internal",
+                    "type": "boolean"
+                  }
+                },
+                "title": "DbActionBody",
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/-/litestream/register": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Payload of the POST endpoints (sync/start/stop/register/unregister).",
+                  "properties": {
+                    "ok": {
+                      "title": "Ok",
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Error"
+                    },
+                    "details": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Details"
+                    },
+                    "database": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Database"
+                    },
+                    "internal": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Internal"
+                    },
+                    "path": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Path"
+                    },
+                    "replica": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Replica"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Status"
+                    },
+                    "txid": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Txid"
+                    },
+                    "result": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Result"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "title": "ActionResult",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Body for /-/litestream/register.",
+                "properties": {
+                  "database": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Database"
+                  },
+                  "internal": {
+                    "default": false,
+                    "title": "Internal",
+                    "type": "boolean"
+                  },
+                  "replica": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Replica"
+                  }
+                },
+                "title": "RegisterBody",
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/-/litestream/unregister": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Payload of the POST endpoints (sync/start/stop/register/unregister).",
+                  "properties": {
+                    "ok": {
+                      "title": "Ok",
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Error"
+                    },
+                    "details": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Details"
+                    },
+                    "database": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Database"
+                    },
+                    "internal": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Internal"
+                    },
+                    "path": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Path"
+                    },
+                    "replica": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Replica"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Status"
+                    },
+                    "txid": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Txid"
+                    },
+                    "result": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Result"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "title": "ActionResult",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Body for /-/litestream/unregister.",
+                "properties": {
+                  "database": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Database"
+                  },
+                  "internal": {
+                    "default": false,
+                    "title": "Internal",
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Timeout"
+                  }
+                },
+                "title": "UnregisterBody",
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AvailableDatabase": {
+        "description": "A file-backed database not currently replicating.",
+        "properties": {
+          "database": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Database"
+          },
+          "internal": {
+            "default": false,
+            "title": "Internal",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "suggested_replica": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Suggested Replica"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "AvailableDatabase",
+        "type": "object"
+      },
+      "DaemonInfo": {
+        "description": "Daemon-level info reported by litestream's control socket.",
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "pid": {
+            "title": "Pid",
+            "type": "integer"
+          },
+          "uptime_seconds": {
+            "title": "Uptime Seconds",
+            "type": "number"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "database_count": {
+            "title": "Database Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "pid",
+          "uptime_seconds",
+          "started_at",
+          "database_count"
+        ],
+        "title": "DaemonInfo",
+        "type": "object"
+      },
+      "ManagedDatabase": {
+        "description": "A database currently registered with the litestream daemon.",
+        "properties": {
+          "database": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Database"
+          },
+          "internal": {
+            "default": false,
+            "title": "Internal",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Sync At"
+          },
+          "replica": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Replica"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ManagedDatabase",
+        "type": "object"
+      }
+    }
+  }
+}
