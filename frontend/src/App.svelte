@@ -104,10 +104,14 @@
 <div class="ls-app">
   <h1>Litestream</h1>
 
+  <!-- A failed poll is a banner on top of the last-known dashboard, never a
+       replacement for it: with 2s polling, one transient error would
+       otherwise blank the whole page until the next successful poll. -->
+  {#if loadError}
+    <p class="ls-banner ls-warn">Could not load status: {loadError}</p>
+  {/if}
   {#if status && !status.running}
     <p class="ls-banner ls-warn">Litestream is not running.</p>
-  {:else if loadError}
-    <p class="ls-banner ls-warn">Could not load status: {loadError}</p>
   {:else if status}
     {#if status.socket_error}
       <p class="ls-banner ls-warn">Control socket error: {status.socket_error}</p>
@@ -138,7 +142,7 @@
     {#if canManage}
       <AddDatabase available={status.available ?? []} {busy} {onregister} />
     {/if}
-  {:else}
+  {:else if !loadError}
     <p class="ls-muted">Loading…</p>
   {/if}
 </div>

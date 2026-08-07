@@ -101,4 +101,44 @@ describe("App", () => {
     render(App, { props: { pageData: { can_manage: true, actor: null } } });
     await waitFor(() => expect(screen.getByText(/not running/i)).toBeTruthy());
   });
+
+  it("keeps the dashboard visible when a later poll fails", async () => {
+    let polls = 0;
+    const fetchMock = vi.fn(async () => {
+      polls += 1;
+      if (polls === 1) {
+        return new Response(JSON.stringify(statusPayload()), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("boom", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(App, { props: { pageData: { can_manage: true, actor: { id: "root" } } } });
+    await waitFor(() => expect(screen.getByText("data")).toBeTruthy());
+
+    // Next poll fails: the stale dashboard must survive alongside the banner.
+    await vi.advanceTimersByTimeAsync(2100);
+    await waitFor(() =>
+      expect(screen.getByText(/could not load status/i)).toBeTruthy(),
+    );
+    expect(screen.getByText("data")).toBeTruthy();
+    expect(screen.getByText("Replicating databases")).toBeTruthy();
+  });
+
+  it("shows a full-page error when the first load fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 403 })),
+    );
+    render(App, { props: { pageData: { can_manage: false, actor: null } } });
+    await waitFor(() =>
+      expect(screen.getByText(/could not load status/i)).toBeTruthy(),
+    );
+    // Nothing ever loaded: no dashboard and no perpetual "Loading…".
+    expect(screen.queryByText("Replicating databases")).toBeNull();
+    expect(screen.queryByText(/loading/i)).toBeNull();
+  });
 });
