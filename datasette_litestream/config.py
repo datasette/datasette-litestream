@@ -157,22 +157,23 @@ class LitestreamConfig(BaseModel):
     )
 
     # Template replica URL applied to every attached database.
-    replica_template: str | None = None
-    # Also replicate Datasette's internal database: True derives the replica
-    # URL from replica-template, a string is used as the URL template directly.
-    replicate_internal: bool | str = False
+    replica_url_template: str | None = None
+    # Replica URL for Datasette's internal database (requires --internal).
+    # Used literally — no template variables, since it names one specific
+    # database rather than a pattern applied across many.
+    internal_replica_url: str | None = None
     # litestream metrics/pprof bind address (e.g. ":9090").
     metrics_addr: str | None = None
     # When true, the runtime register API only accepts the replica URL derived
-    # from configuration (db-level 'replica' or the 'replica-template' template);
-    # caller-supplied URLs that differ are rejected with a 400.
+    # from configuration (db-level 'replica' or the 'replica-url-template'
+    # pattern); caller-supplied URLs that differ are rejected with a 400.
     restrict_runtime_replicas: bool = False
     # litestream daemon logging: level, format and destination file.
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     # S3 credentials: static keys, or a dynamic file/command source.
     credentials: CredentialsConfig = Field(default_factory=CredentialsConfig)
 
-    @field_validator("replica_template", mode="before")
+    @field_validator("replica_url_template", mode="before")
     @classmethod
     def _reject_list(cls, value):
         # Pre-0.5 versions accepted a list here and used the first entry;
@@ -181,8 +182,9 @@ class LitestreamConfig(BaseModel):
             # Not a TypeError: pydantic only turns ValueError into a
             # ValidationError; a TypeError would escape validation.
             raise ValueError(  # noqa: TRY004
-                "'replica-template' must be a single URL template, not a list — "
-                "litestream 0.5 replicates each database to a single destination"
+                "'replica-url-template' must be a single URL template, not a "
+                "list — litestream 0.5 replicates each database to a single "
+                "destination"
             )
         return value
 

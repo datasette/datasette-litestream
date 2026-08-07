@@ -126,8 +126,16 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** Database */
-                        database: string;
+                        /**
+                         * Database
+                         * @default null
+                         */
+                        database?: string | null;
+                        /**
+                         * Internal
+                         * @default false
+                         */
+                        internal?: boolean;
                     };
                 };
             };
@@ -156,6 +164,11 @@ export interface paths {
                              * @default null
                              */
                             database?: string | null;
+                            /**
+                             * Internal
+                             * @default null
+                             */
+                            internal?: boolean | null;
                             /**
                              * Path
                              * @default null
@@ -211,8 +224,16 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** Database */
-                        database: string;
+                        /**
+                         * Database
+                         * @default null
+                         */
+                        database?: string | null;
+                        /**
+                         * Internal
+                         * @default false
+                         */
+                        internal?: boolean;
                     };
                 };
             };
@@ -241,6 +262,11 @@ export interface paths {
                              * @default null
                              */
                             database?: string | null;
+                            /**
+                             * Internal
+                             * @default null
+                             */
+                            internal?: boolean | null;
                             /**
                              * Path
                              * @default null
@@ -296,8 +322,16 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** Database */
-                        database: string;
+                        /**
+                         * Database
+                         * @default null
+                         */
+                        database?: string | null;
+                        /**
+                         * Internal
+                         * @default false
+                         */
+                        internal?: boolean;
                     };
                 };
             };
@@ -326,6 +360,11 @@ export interface paths {
                              * @default null
                              */
                             database?: string | null;
+                            /**
+                             * Internal
+                             * @default null
+                             */
+                            internal?: boolean | null;
                             /**
                              * Path
                              * @default null
@@ -381,8 +420,16 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** Database */
-                        database: string;
+                        /**
+                         * Database
+                         * @default null
+                         */
+                        database?: string | null;
+                        /**
+                         * Internal
+                         * @default false
+                         */
+                        internal?: boolean;
                         /**
                          * Replica
                          * @default null
@@ -416,6 +463,11 @@ export interface paths {
                              * @default null
                              */
                             database?: string | null;
+                            /**
+                             * Internal
+                             * @default null
+                             */
+                            internal?: boolean | null;
                             /**
                              * Path
                              * @default null
@@ -471,8 +523,16 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** Database */
-                        database: string;
+                        /**
+                         * Database
+                         * @default null
+                         */
+                        database?: string | null;
+                        /**
+                         * Internal
+                         * @default false
+                         */
+                        internal?: boolean;
                         /**
                          * Timeout
                          * @default null
@@ -506,6 +566,11 @@ export interface paths {
                              * @default null
                              */
                             database?: string | null;
+                            /**
+                             * Internal
+                             * @default null
+                             */
+                            internal?: boolean | null;
                             /**
                              * Path
                              * @default null
@@ -548,11 +613,19 @@ export interface components {
     schemas: {
         /**
          * AvailableDatabase
-         * @description An attached, file-backed database not currently replicating.
+         * @description A file-backed database not currently replicating.
          */
         AvailableDatabase: {
-            /** Database */
-            database: string;
+            /**
+             * Database
+             * @default null
+             */
+            database?: string | null;
+            /**
+             * Internal
+             * @default false
+             */
+            internal?: boolean;
             /** Path */
             path: string;
             /**
@@ -587,6 +660,11 @@ export interface components {
              * @default null
              */
             database?: string | null;
+            /**
+             * Internal
+             * @default false
+             */
+            internal?: boolean;
             /** Path */
             path: string;
             /**

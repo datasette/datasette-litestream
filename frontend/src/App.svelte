@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { PageData, Status, ActionResult } from "./lib/types";
+  import type { PageData, Status, ActionResult, Target } from "./lib/types";
+  import { targetLabel } from "./lib/types";
   import { client } from "./lib/client";
   import DaemonCard from "./lib/DaemonCard.svelte";
   import DatabaseTable from "./lib/DatabaseTable.svelte";
@@ -42,19 +43,19 @@
   // Non-2xx responses carry the API's {ok: false, error} body in `error`;
   // Pydantic validation failures carry {error, errors} with no `ok` field.
   async function run(
-    database: string,
+    label: string,
     fn: () => Promise<{
       data?: ActionResult;
       error?: unknown;
       response: Response;
     }>,
   ) {
-    busy = database;
+    busy = label;
     notice = null;
     try {
       const { data, error, response } = await fn();
       if (data?.ok) {
-        notice = `${database}: ${data.status ?? "ok"}`;
+        notice = `${label}: ${data.status ?? "ok"}`;
       } else {
         const err = (error ?? {}) as { error?: string };
         notice = `Error: ${data?.error ?? err.error ?? `HTTP ${response.status}`}`;
@@ -67,26 +68,30 @@
     }
   }
 
-  const onsync = (db: string) =>
-    run(db, () =>
-      client.POST("/-/litestream/api/sync", { body: { database: db } }),
+  // The internal database is addressed with {internal: true}, never by name.
+  const targetBody = (t: Target) =>
+    t.internal ? { internal: true as const } : { database: t.database ?? "" };
+
+  const onsync = (t: Target) =>
+    run(targetLabel(t), () =>
+      client.POST("/-/litestream/api/sync", { body: targetBody(t) }),
     );
-  const onstop = (db: string) =>
-    run(db, () =>
-      client.POST("/-/litestream/api/stop", { body: { database: db } }),
+  const onstop = (t: Target) =>
+    run(targetLabel(t), () =>
+      client.POST("/-/litestream/api/stop", { body: targetBody(t) }),
     );
-  const onstart = (db: string) =>
-    run(db, () =>
-      client.POST("/-/litestream/api/start", { body: { database: db } }),
+  const onstart = (t: Target) =>
+    run(targetLabel(t), () =>
+      client.POST("/-/litestream/api/start", { body: targetBody(t) }),
     );
-  const onunregister = (db: string) =>
-    run(db, () =>
-      client.POST("/-/litestream/unregister", { body: { database: db } }),
+  const onunregister = (t: Target) =>
+    run(targetLabel(t), () =>
+      client.POST("/-/litestream/unregister", { body: targetBody(t) }),
     );
-  const onregister = (db: string, replica: string) =>
-    run(db, () =>
+  const onregister = (t: Target, replica: string) =>
+    run(targetLabel(t), () =>
       client.POST("/-/litestream/register", {
-        body: replica ? { database: db, replica } : { database: db },
+        body: replica ? { ...targetBody(t), replica } : targetBody(t),
       }),
     );
 </script>

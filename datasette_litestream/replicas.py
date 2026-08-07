@@ -1,8 +1,8 @@
 """Resolve which databases replicate where.
 
-Pure helpers that turn plugin configuration (replica URL templates,
-``replica-template``, ``replicate-internal``) into concrete replica URLs and
-database paths. No daemon or Datasette request state involved.
+Pure helpers that turn plugin configuration (``replica-url-template``,
+db-level ``replica`` values) into concrete replica URLs and database paths.
+No daemon or Datasette request state involved.
 """
 
 import os
@@ -18,12 +18,6 @@ def expand_replica_template(template: str, db_name: str, db_path: Path) -> str:
         .replace("$DB_DIRECTORY", str(Path(db_path).resolve().parent))
         .replace("$PWD", os.getcwd())
     )
-
-
-# Name used for Datasette's internal database in replica URL templates, the
-# admin UI and the manage API. Leading underscore avoids clashing with attached
-# databases (Datasette reserves underscore-prefixed names).
-INTERNAL_DB_NAME = "_internal"
 
 
 def internal_database_path(datasette):
@@ -46,17 +40,17 @@ def resolve_replica_url(
     db_name,
     db_path,
     db_config: DatabaseConfig | None,
-    replica_template: str | None,
+    replica_url_template: str | None,
 ):
     """Determine the single replica URL for a database, or None to skip it.
 
     litestream 0.5 replicates each database to exactly one destination, so we
     resolve a single URL: the db-level ``replica``, falling back to the
-    top-level ``replica-template`` template.
+    top-level ``replica-url-template`` template.
     """
     template = db_config.replica if db_config is not None else None
     if not template:
-        template = replica_template
+        template = replica_url_template
     if not template:
         return None
     return expand_replica_template(template, db_name, db_path)

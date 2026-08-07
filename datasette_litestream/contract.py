@@ -8,7 +8,7 @@ frontend TypeScript types (frontend/api.d.ts) are generated from.
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Replica URL schemes supported by litestream 0.5 (its registered replica
 # client factories); anything else is rejected at the API edge.
@@ -27,17 +27,34 @@ ALLOWED_REPLICA_SCHEMES = {
 # --- Request bodies ---------------------------------------------------------
 
 
-class DbActionBody(BaseModel):
-    """Body for sync/start/stop: name a Datasette database."""
+class TargetBody(BaseModel):
+    """Base for bodies addressing a database.
 
-    database: str
+    An attached Datasette database is addressed by name; the internal database
+    is addressed with ``internal: true`` (never by name — a legitimately
+    attached database could be called anything, including ``_internal``).
+    """
+
+    database: str | None = None
+    internal: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self):
+        if self.internal and self.database:
+            raise ValueError("pass either 'database' or 'internal': true, not both")
+        if not self.internal and not self.database:
+            raise ValueError("either 'database' or 'internal': true is required")
+        return self
 
 
-class RegisterBody(BaseModel):
+class DbActionBody(TargetBody):
+    """Body for sync/start/stop."""
+
+
+class RegisterBody(TargetBody):
     """Body for /-/litestream/register."""
 
-    database: str
-    # Optional replica URL; falls back to db-level / replica-template config.
+    # Optional replica URL; falls back to the configured replica for the target.
     replica: str | None = None
 
     @field_validator("replica")
@@ -62,10 +79,9 @@ class RegisterBody(BaseModel):
         return value
 
 
-class UnregisterBody(BaseModel):
+class UnregisterBody(TargetBody):
     """Body for /-/litestream/unregister."""
 
-    database: str
     # Seconds to wait for the daemon's final sync before giving up. The daemon
     # takes whole seconds; fractional values are rounded up on the wire.
     timeout: float | None = Field(default=None, ge=0)
@@ -88,7 +104,9 @@ class ManagedDatabase(BaseModel):
     """A database currently registered with the litestream daemon."""
 
     # Datasette database name, if the path maps back to an attached database.
+    # None for the internal database, which is identified by ``internal``.
     database: str | None = None
+    internal: bool = False
     path: str
     status: str | None = None
     last_sync_at: str | None = None
@@ -96,9 +114,11 @@ class ManagedDatabase(BaseModel):
 
 
 class AvailableDatabase(BaseModel):
-    """An attached, file-backed database not currently replicating."""
+    """A file-backed database not currently replicating."""
 
-    database: str
+    # None for the internal database, which is identified by ``internal``.
+    database: str | None = None
+    internal: bool = False
     path: str
     suggested_replica: str | None = None
 
@@ -127,6 +147,7 @@ class ActionResult(BaseModel):
     error: str | None = None
     details: str | None = None
     database: str | None = None
+    internal: bool | None = None
     path: str | None = None
     replica: str | None = None
     status: str | None = None

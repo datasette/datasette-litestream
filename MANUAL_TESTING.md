@@ -362,7 +362,7 @@ read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
     -s plugins.datasette-litestream.metrics-addr ":9091" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test1/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test1/$DB_NAME' \
     -p 8001 \
     --root)
 
@@ -407,7 +407,7 @@ read "?Press Enter to start Datasette..."
     -s plugins.datasette-litestream.credentials.access-key-id "${ACCESS_KEY}" \
     -s plugins.datasette-litestream.credentials.secret-access-key "${SECRET_KEY}" \
     -s plugins.datasette-litestream.metrics-addr ":9092" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test2/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test2/$DB_NAME' \
     -p 8002 \
     --root)
 
@@ -451,7 +451,7 @@ read "?Press Enter to start Datasette..."
     -s plugins.datasette-litestream.credentials.file "${CREDENTIALS_FILE_PATH}" \
     -s plugins.datasette-litestream.credentials.refresh-interval 60 \
     -s plugins.datasette-litestream.metrics-addr ":9093" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test3/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test3/$DB_NAME' \
     -p 8003 \
     --root)
 
@@ -502,7 +502,7 @@ read "?Press Enter to start Datasette..."
     -s plugins.datasette-litestream.credentials.command "${CREDENTIALS_COMMAND}" \
     -s plugins.datasette-litestream.credentials.refresh-interval 60 \
     -s plugins.datasette-litestream.metrics-addr ":9094" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test4/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test4/$DB_NAME' \
     -p 8004 \
     --root)
 
@@ -552,7 +552,7 @@ read "?Press Enter to start Datasette..."
     -s plugins.datasette-litestream.credentials.command "${FETCH_CREDS_COMMAND}" \
     -s plugins.datasette-litestream.credentials.refresh-interval 300 \
     -s plugins.datasette-litestream.metrics-addr ":9095" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test5/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test5/$DB_NAME' \
     -p 8005 \
     --root)
 
@@ -608,7 +608,7 @@ read "?Press Enter to start Datasette..."
     -s plugins.datasette-litestream.credentials.file "${ROTATING_CREDENTIALS_PATH}" \
     -s plugins.datasette-litestream.credentials.refresh-interval 10 \
     -s plugins.datasette-litestream.metrics-addr ":9096" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test6/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test6/$DB_NAME' \
     -p 8006 \
     --root)
 
@@ -623,7 +623,7 @@ read "?Did the test pass? Press Enter to continue to the next test..."
 
 ### Test 7: Multiple Database Replication
 
-**Purpose:** Test that replica-template works correctly with multiple databases.
+**Purpose:** Test that replica-url-template works correctly with multiple databases.
 
 ```bash
 export LITESTREAM_ACCESS_KEY_ID=$(jq -r '."access-key-id"' ./static-credentials.json)
@@ -642,7 +642,7 @@ read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db ./analytics.db \
     -s plugins.datasette-litestream.metrics-addr ":9097" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test7/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test7/$DB_NAME' \
     -p 8007 \
     --root)
 
@@ -735,7 +735,7 @@ read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
     -s plugins.datasette-litestream.metrics-addr ":9099" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test9/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test9/$DB_NAME' \
     -p 8009 \
     --root) &
 
@@ -796,7 +796,7 @@ read "?Press Enter to start the integrity test..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./integrity-test.db \
     -s plugins.datasette-litestream.metrics-addr ":9100" \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test10/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test10/$DB_NAME' \
     -p 8010 \
     --root) &
 
@@ -899,7 +899,7 @@ read "?Press Enter to start Datasette (will timeout after 10 seconds)..."
 timeout 10 bash -c '(cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
     -s plugins.datasette-litestream.credentials.file "'"${INVALID_CREDENTIALS_PATH}"'" \
     -s plugins.datasette-litestream.credentials.refresh-interval 60 \
-    -s plugins.datasette-litestream.replica-template '"'"'s3://'"${BUCKET_NAME}"'/test11/$DB_NAME'"'"' \
+    -s plugins.datasette-litestream.replica-url-template '"'"'s3://'"${BUCKET_NAME}"'/test11/$DB_NAME'"'"' \
     -p 8011 \
     --root 2>&1)' || echo "Process exited (expected)"
 
@@ -929,7 +929,7 @@ read "?Press Enter to start Datasette..."
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
     -s plugins.datasette-litestream.credentials.file "/nonexistent/credentials.json" \
     -s plugins.datasette-litestream.credentials.refresh-interval 60 \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test12/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test12/$DB_NAME' \
     -p 8012 \
     --root 2>&1) || echo "Startup failed as expected"
 
@@ -962,7 +962,7 @@ read "?Press Enter to start Datasette..."
     -s plugins.datasette-litestream.credentials.file "${CREDENTIALS_FILE_PATH}" \
     -s plugins.datasette-litestream.credentials.command "echo {}" \
     -s plugins.datasette-litestream.credentials.refresh-interval 60 \
-    -s plugins.datasette-litestream.replica-template 's3://'"${BUCKET_NAME}"'/test13/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test13/$DB_NAME' \
     -p 8013 \
     --root 2>&1) || echo "Startup failed as expected"
 
@@ -1002,7 +1002,7 @@ export LOCAL_BACKUP_PATH="$(pwd)/local-backup"
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
     -s plugins.datasette-litestream.metrics-addr ":9114" \
-    -s plugins.datasette-litestream.replica-template 'file://'"${LOCAL_BACKUP_PATH}"'/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 'file://'"${LOCAL_BACKUP_PATH}"'/$DB_NAME' \
     -p 8014 \
     --root) &
 
@@ -1043,7 +1043,7 @@ export SHUTDOWN_BACKUP_PATH="$(pwd)/shutdown-backup"
 
 echo "Starting Datasette with a file:// replica..."
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.replica-template 'file://'"${SHUTDOWN_BACKUP_PATH}"'/$DB_NAME' \
+    -s plugins.datasette-litestream.replica-url-template 'file://'"${SHUTDOWN_BACKUP_PATH}"'/$DB_NAME' \
     -p 8015 \
     --root) &
 export DATASETTE_PID=$!

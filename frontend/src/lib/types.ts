@@ -21,3 +21,14 @@ export interface PageData {
   can_manage: boolean;
   actor: Record<string, unknown> | null;
 }
+
+// A database an action can address: an attached database by name, or the
+// internal database via the `internal` flag (it has no addressable name).
+export interface Target {
+  database?: string | null;
+  internal?: boolean;
+}
+
+export function targetLabel(t: Target): string {
+  return t.internal ? "internal database" : (t.database ?? "");
+}

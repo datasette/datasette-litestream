@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { ManagedDatabase } from "./types";
+  import type { ManagedDatabase, Target } from "./types";
+  import { targetLabel } from "./types";
   import { formatTimestamp, middleTruncate, relativeTime } from "./format";
 
   let {
@@ -14,11 +15,22 @@
     databases: ManagedDatabase[];
     canManage: boolean;
     busy: string | null;
-    onsync: (db: string) => void;
-    onstop: (db: string) => void;
-    onstart: (db: string) => void;
-    onunregister: (db: string) => void;
+    onsync: (target: Target) => void;
+    onstop: (target: Target) => void;
+    onstart: (target: Target) => void;
+    onunregister: (target: Target) => void;
   } = $props();
+
+  function displayName(db: ManagedDatabase): string {
+    if (db.internal) return "internal database";
+    return db.database ?? middleTruncate(db.path, 28);
+  }
+
+  // A row is actionable when it maps to an attached database or the internal
+  // database; a detached database can only be shown.
+  function isActionable(db: ManagedDatabase): boolean {
+    return Boolean(db.database || db.internal);
+  }
 
   function isStopped(status: string | null | undefined): boolean {
     return (status ?? "").toLowerCase().includes("stop");
@@ -72,15 +84,13 @@
       </thead>
       <tbody>
         {#each databases as db (db.path)}
-          {@const name = db.database ?? db.path}
-          {@const disabled = busy === name}
+          {@const disabled = busy === targetLabel(db)}
           <tr>
             <td>
               <button
                 class="ls-dblink"
                 title="Show details"
-                onclick={() => openDetails(db)}
-                >{db.database ?? middleTruncate(db.path, 28)}</button
+                onclick={() => openDetails(db)}>{displayName(db)}</button
               >
             </td>
             <td>
@@ -96,17 +106,17 @@
             </td>
             {#if canManage}
               <td class="ls-actions">
-                {#if db.database}
+                {#if isActionable(db)}
                   {#if isStopped(db.status)}
-                    <button {disabled} onclick={() => onstart(name)}>Start</button>
+                    <button {disabled} onclick={() => onstart(db)}>Start</button>
                   {:else}
-                    <button {disabled} onclick={() => onsync(name)}>Sync</button>
-                    <button {disabled} onclick={() => onstop(name)}>Stop</button>
+                    <button {disabled} onclick={() => onsync(db)}>Sync</button>
+                    <button {disabled} onclick={() => onstop(db)}>Stop</button>
                   {/if}
                   <button
                     class="ls-danger"
                     {disabled}
-                    onclick={() => onunregister(name)}>Remove</button
+                    onclick={() => onunregister(db)}>Remove</button
                   >
                 {:else}
                   <span class="ls-muted">detached</span>
@@ -124,7 +134,9 @@
   {#if detail}
     {@const restore = restoreCommand(detail)}
     <h3>
-      {detail.database ?? "(detached database)"}
+      {detail.internal
+        ? "internal database"
+        : (detail.database ?? "(detached database)")}
       <span class="ls-status" class:ls-stopped={isStopped(detail.status)}>
         {detail.status ?? "unknown"}
       </span>

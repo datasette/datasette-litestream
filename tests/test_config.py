@@ -23,14 +23,14 @@ from datasette_litestream.config import (
 def test_top_level_kebab_aliases():
     config = LitestreamConfig.model_validate(
         {
-            "replica-template": "s3://bucket/$DB_NAME",
-            "replicate-internal": True,
+            "replica-url-template": "s3://bucket/$DB_NAME",
+            "internal-replica-url": "s3://bucket/internal",
             "metrics-addr": ":9090",
             "credentials": {"access-key-id": "AKIA", "secret-access-key": "secret"},
         }
     )
-    assert config.replica_template == "s3://bucket/$DB_NAME"
-    assert config.replicate_internal is True
+    assert config.replica_url_template == "s3://bucket/$DB_NAME"
+    assert config.internal_replica_url == "s3://bucket/internal"
     assert config.metrics_addr == ":9090"
     assert config.credentials.access_key_id == "AKIA"
 
@@ -50,11 +50,11 @@ def test_unknown_top_level_key_is_forbidden():
 
 def test_snake_case_spellings_are_accepted():
     """populate_by_name means snake_case keys populate the field instead of
-    being silently ignored (the pre-model behavior for e.g. replica_template)."""
+    being silently ignored (the pre-model behavior for e.g. replica_url_template)."""
     config = LitestreamConfig.model_validate(
-        {"replica_template": "s3://bucket/$DB_NAME"}
+        {"replica_url_template": "s3://bucket/$DB_NAME"}
     )
-    assert config.replica_template == "s3://bucket/$DB_NAME"
+    assert config.replica_url_template == "s3://bucket/$DB_NAME"
 
 
 def test_replica_template_list_is_rejected():
@@ -62,20 +62,28 @@ def test_replica_template_list_is_rejected():
     0.5 replicates to a single destination, so a list is now an error."""
     with pytest.raises(ValidationError, match="single URL template"):
         LitestreamConfig.model_validate(
-            {"replica-template": ["s3://bucket/a", "s3://bucket/b"]}
+            {"replica-url-template": ["s3://bucket/a", "s3://bucket/b"]}
         )
     with pytest.raises(ValidationError, match="single URL template"):
-        LitestreamConfig.model_validate({"replica-template": []})
+        LitestreamConfig.model_validate({"replica-url-template": []})
 
 
-def test_replicate_internal_accepts_bool_or_template():
-    assert LitestreamConfig().replicate_internal is False
+def test_internal_replica_url_is_a_url():
+    assert LitestreamConfig().internal_replica_url is None
     assert (
         LitestreamConfig.model_validate(
-            {"replicate-internal": "s3://bucket/internal"}
-        ).replicate_internal
+            {"internal-replica-url": "s3://bucket/internal"}
+        ).internal_replica_url
         == "s3://bucket/internal"
     )
+
+
+def test_internal_replica_url_rejects_non_strings():
+    # The pre-0.5 'replicate-internal: true' form is gone; the key holds a URL.
+    with pytest.raises(ValidationError, match="internal-replica-url"):
+        LitestreamConfig.model_validate({"internal-replica-url": True})
+    with pytest.raises(ValidationError, match="replicate-internal"):
+        LitestreamConfig.model_validate({"replicate-internal": True})
 
 
 def test_credentials_block_static():
@@ -231,10 +239,12 @@ async def test_startup_rejects_unknown_database_key(tmpdir):
 async def test_get_config_is_cached_per_instance():
     ds = Datasette(
         memory=True,
-        config={"plugins": {"datasette-litestream": {"replica-template": "s3://x"}}},
+        config={
+            "plugins": {"datasette-litestream": {"replica-url-template": "s3://x"}}
+        },
     )
     assert get_config(ds) is get_config(ds)
-    assert get_config(ds).replica_template == "s3://x"
+    assert get_config(ds).replica_url_template == "s3://x"
 
 
 @pytest.mark.asyncio

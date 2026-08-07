@@ -274,7 +274,7 @@ async def test_replica_template(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -302,7 +302,7 @@ async def test_logging_path(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME",
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME",
                     "logging": {"path": str(log_path)},
                 }
             }
@@ -344,7 +344,7 @@ async def test_runtime_register_and_unregister(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -409,7 +409,7 @@ async def test_register_route_requires_permission(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -433,7 +433,7 @@ async def test_register_unknown_database(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1055,7 +1055,7 @@ async def test_register_during_rotation_integration(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1130,7 +1130,7 @@ async def test_unregister_detached_database_integration(litestream_binary, tmpdi
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1267,7 +1267,7 @@ async def test_dead_daemon_returns_json_5xx(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1346,7 +1346,7 @@ async def test_restrict_runtime_replicas(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME",
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME",
                     "restrict-runtime-replicas": True,
                 }
             }
@@ -1398,7 +1398,7 @@ async def test_replica_template_skips_immutable_db(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1769,7 +1769,7 @@ async def test_stop_daemon_closes_logfile_and_prunes_registry(
 
 
 @pytest.mark.asyncio
-async def test_replicate_internal(litestream_binary, tmpdir):
+async def test_internal_replica_url(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
     table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
@@ -1780,8 +1780,8 @@ async def test_replicate_internal(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME",
-                    "replicate-internal": True,
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME",
+                    "internal-replica-url": "file://" + str(backups) + "/internal-db",
                 }
             }
         },
@@ -1789,7 +1789,8 @@ async def test_replicate_internal(litestream_binary, tmpdir):
     datasette.root_enabled = True
     await datasette.invoke_startup()
 
-    expected = backups / "_internal"
+    # The dedicated URL is used literally — no _internal name derivation.
+    expected = backups / "internal-db"
     for _ in range(20):
         if replica_has_data(str(expected)):
             break
@@ -1799,19 +1800,22 @@ async def test_replicate_internal(litestream_binary, tmpdir):
     startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)
     assert processes[startup_id].warnings == []
 
-    # the status API reports the internal database under its reserved name
+    # the status API flags the internal database instead of naming it
     response = await datasette.client.get(
         "/-/litestream/api/status",
         cookies={"ds_actor": datasette.sign(actor_root, "actor")},
     )
     assert response.status_code == 200
     status = response.json()
-    assert "_internal" in [db["database"] for db in status["databases"]]
+    internal_rows = [db for db in status["databases"] if db["internal"]]
+    assert len(internal_rows) == 1
+    assert internal_rows[0]["database"] is None
+    assert internal_rows[0]["replica"] == "file://" + str(backups) + "/internal-db"
     assert status["warnings"] == []
 
 
 @pytest.mark.asyncio
-async def test_replicate_internal_ephemeral_warns(litestream_binary, tmpdir):
+async def test_internal_replica_url_ephemeral_warns(litestream_binary, tmpdir):
     db_path = str(tmpdir / "data.db")
     table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
@@ -1822,8 +1826,8 @@ async def test_replicate_internal_ephemeral_warns(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME",
-                    "replicate-internal": True,
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME",
+                    "internal-replica-url": "file://" + str(backups) + "/internal-db",
                 }
             }
         },
@@ -1834,13 +1838,135 @@ async def test_replicate_internal_ephemeral_warns(litestream_binary, tmpdir):
     startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY)
     warnings = processes[startup_id].warnings
     assert len(warnings) == 1
-    assert "replicate-internal" in warnings[0]
+    assert "internal-replica-url" in warnings[0]
 
     response = await datasette.client.get(
         "/-/litestream/api/status",
         cookies={"ds_actor": datasette.sign(actor_root, "actor")},
     )
     assert response.json()["warnings"] == warnings
+
+
+@pytest.mark.asyncio
+async def test_internal_flag_manage_api(litestream_binary, tmpdir):
+    """The manage API addresses the internal database with {"internal": true},
+    never by name."""
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    datasette = Datasette(
+        [db_path],
+        internal=str(tmpdir / "internal.db"),
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
+                }
+            }
+        },
+    )
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+    headers = await root_token(datasette)
+
+    # Not configured for startup replication: offered in `available`, flagged.
+    status = (
+        await datasette.client.get(
+            "/-/litestream/api/status",
+            cookies={"ds_actor": datasette.sign(actor_root, "actor")},
+        )
+    ).json()
+    internal_avail = [a for a in status["available"] if a["internal"]]
+    assert len(internal_avail) == 1
+    assert internal_avail[0]["database"] is None
+
+    # Register it at runtime via the flag.
+    response = await datasette.client.post(
+        "/-/litestream/register",
+        json={"internal": True, "replica": "file://" + str(backups) + "/internal-db"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ok"] is True
+    assert body["internal"] is True
+    assert body["database"] is None
+
+    # Sync and unregister via the flag too.
+    response = await datasette.client.post(
+        "/-/litestream/api/sync", json={"internal": True}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    response = await datasette.client.post(
+        "/-/litestream/unregister", json={"internal": True}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["internal"] is True
+
+    # Target validation: both or neither is a 400.
+    response = await datasette.client.post(
+        "/-/litestream/api/sync",
+        json={"database": "data", "internal": True},
+        headers=headers,
+    )
+    assert response.status_code == 400
+    response = await datasette.client.post(
+        "/-/litestream/api/sync", json={}, headers=headers
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attached_database_named_internal_is_not_confused(
+    litestream_binary, tmpdir
+):
+    """A legitimately attached database called '_internal' must not be
+    conflated with THE internal database."""
+    decoy_path = str(tmpdir / "_internal.db")
+    table(decoy_path, "t").insert({"v": 1})
+    backups = tmpdir / "backups"
+
+    datasette = Datasette(
+        [decoy_path],
+        internal=str(tmpdir / "real-internal.db"),
+        config={
+            "plugins": {
+                "datasette-litestream": {
+                    "internal-replica-url": "file://" + str(backups) + "/internal-db"
+                }
+            },
+            "databases": {
+                "_internal": {
+                    "plugins": {
+                        "datasette-litestream": {
+                            "replica": "file://" + str(backups) + "/decoy"
+                        }
+                    }
+                }
+            },
+        },
+    )
+    datasette.root_enabled = True
+    await datasette.invoke_startup()
+    headers = await root_token(datasette)
+
+    status = (
+        await datasette.client.get(
+            "/-/litestream/api/status",
+            cookies={"ds_actor": datasette.sign(actor_root, "actor")},
+        )
+    ).json()
+    rows = {(db["database"], db["internal"]) for db in status["databases"]}
+    assert rows == {("_internal", False), (None, True)}
+
+    # Acting on the name targets the attached database, not the internal one.
+    response = await datasette.client.post(
+        "/-/litestream/api/sync", json={"database": "_internal"}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["database"] == "_internal"
+    assert response.json()["internal"] is False
 
 
 @pytest.mark.asyncio
@@ -1854,7 +1980,7 @@ async def test_in_memory_database_warns(litestream_binary, tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": "file://" + str(backups) + "/$DB_NAME"
+                    "replica-url-template": "file://" + str(backups) + "/$DB_NAME"
                 }
             }
         },
@@ -1904,7 +2030,7 @@ async def test_replica_template_list_fails_startup(tmpdir):
         config={
             "plugins": {
                 "datasette-litestream": {
-                    "replica-template": [
+                    "replica-url-template": [
                         "file://" + str(tmpdir / "backups") + "/$DB_NAME",
                         "s3://second-bucket/$DB_NAME",
                     ]
@@ -1919,7 +2045,7 @@ async def test_replica_template_list_fails_startup(tmpdir):
 @pytest.mark.asyncio
 async def test_empty_db_block_without_replica_template_warns(students_db_path, capsys):
     """An empty db-level block opts the database in, but with no 'replica' URL
-    and no 'replica-template' there is nothing to replicate to — say so instead
+    and no 'replica-url-template' there is nothing to replicate to — say so instead
     of silently skipping the database."""
     datasette = Datasette(
         [students_db_path],

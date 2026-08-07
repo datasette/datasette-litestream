@@ -29,12 +29,7 @@ from .process import (
     get_dynamic_credentials,
     processes,
 )
-from .replicas import (
-    INTERNAL_DB_NAME,
-    expand_replica_template,
-    internal_database_path,
-    resolve_replica_url,
-)
+from .replicas import internal_database_path, resolve_replica_url
 from .router import MANAGE_ACTION, VIEW_STATUS_ACTION, router
 
 
@@ -159,7 +154,7 @@ def startup(datasette):
     else:
         creds = config.credentials.static
 
-    replica_template = config.replica_template
+    replica_url_template = config.replica_url_template
     warnings = []
 
     # litestream's metrics server is unauthenticated and also mounts Go's
@@ -188,7 +183,7 @@ def startup(datasette):
             # _memory is always present and never file-backed; only warn about
             # databases this configuration would otherwise try to replicate.
             if db_name != "_memory" and (
-                db_config is not None or replica_template is not None
+                db_config is not None or replica_url_template is not None
             ):
                 warnings.append(
                     f"Database '{db_name}' is in-memory only, so Litestream cannot replicate it."
@@ -209,51 +204,40 @@ def startup(datasette):
                     "mode) — open the database as mutable or remove its "
                     "datasette-litestream configuration."
                 )
-            if replica_template is not None:
+            if replica_url_template is not None:
                 warnings.append(
                     f"Database '{db_name}' is immutable, so Litestream will not replicate it."
                 )
             continue
 
-        # skip this DB if "replica-template" was not defined or no db-level config was given
-        if db_config is None and replica_template is None:
+        # skip this DB if "replica-url-template" was not defined or no db-level config was given
+        if db_config is None and replica_url_template is None:
             continue
 
-        replica_url = resolve_replica_url(db_name, db_path, db_config, replica_template)
+        replica_url = resolve_replica_url(
+            db_name, db_path, db_config, replica_url_template
+        )
         if replica_url is None:
             # Only possible with a db-level block that has no 'replica' URL
-            # and no 'replica-template' fallback.
+            # and no 'replica-url-template' fallback.
             warnings.append(
                 f"Database '{db_name}' has a datasette-litestream block but no "
-                "'replica' URL, and no top-level 'replica-template' is set, so it "
+                "'replica' URL, and no top-level 'replica-url-template' is set, so it "
                 "will not be replicated."
             )
             continue
 
         initial.append((db_name, str(db_path.resolve()), replica_url))
 
-    if config.replicate_internal:
+    if config.internal_replica_url:
         internal_path, reason = internal_database_path(datasette)
         if internal_path is None:
-            warnings.append(
-                f"'replicate-internal' is enabled but cannot work: {reason}"
-            )
+            warnings.append(f"'internal-replica-url' is set but cannot work: {reason}")
         else:
-            if isinstance(config.replicate_internal, str):
-                replica_url = expand_replica_template(
-                    config.replicate_internal, INTERNAL_DB_NAME, internal_path
-                )
-            else:
-                replica_url = resolve_replica_url(
-                    INTERNAL_DB_NAME, internal_path, None, replica_template
-                )
-            if replica_url is None:
-                raise StartupError(
-                    "datasette-litestream: 'replicate-internal' needs a replica URL — "
-                    "set it to a URL template or define 'replica-template'"
-                )
+            # No name: the internal database is identified by its path (and
+            # the API's 'internal' flag), never by a reserved database name.
             initial.append(
-                (INTERNAL_DB_NAME, str(internal_path.resolve()), replica_url)
+                (None, str(internal_path.resolve()), config.internal_replica_url)
             )
 
     for warning in warnings:

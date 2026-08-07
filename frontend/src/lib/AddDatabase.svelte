@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { AvailableDatabase } from "./types";
+  import type { AvailableDatabase, Target } from "./types";
+  import { targetLabel } from "./types";
 
   let {
     available,
@@ -8,17 +9,26 @@
   }: {
     available: AvailableDatabase[];
     busy: string | null;
-    onregister: (db: string, replica: string) => void;
+    onregister: (target: Target, replica: string) => void;
   } = $props();
 
-  let selected = $state("");
+  // Options are keyed by path: it is unique, and the internal database has
+  // no addressable name (only the `internal` flag).
+  let selectedPath = $state("");
   let replica = $state("");
+
+  const selected = $derived(
+    available.find((a) => a.path === selectedPath) ?? null,
+  );
+
+  function optionLabel(a: AvailableDatabase): string {
+    return a.internal ? "internal database" : (a.database ?? a.path);
+  }
 
   // When the selected database changes, prefill the replica with its suggestion.
   $effect(() => {
-    const match = available.find((a) => a.database === selected);
-    if (match && match.suggested_replica && !replica) {
-      replica = match.suggested_replica;
+    if (selected && selected.suggested_replica && !replica) {
+      replica = selected.suggested_replica;
     }
   });
 
@@ -39,10 +49,10 @@
     <form class="ls-form" onsubmit={submit}>
       <label>
         Database
-        <select bind:value={selected}>
+        <select bind:value={selectedPath}>
           <option value="" disabled>Choose a database…</option>
           {#each available as a (a.path)}
-            <option value={a.database}>{a.database}</option>
+            <option value={a.path}>{optionLabel(a)}</option>
           {/each}
         </select>
       </label>
@@ -54,7 +64,12 @@
           placeholder="s3://bucket/prefix or file:///backups/db"
         />
       </label>
-      <button type="submit" disabled={!selected || !replica.trim() || busy === selected}>
+      <button
+        type="submit"
+        disabled={!selected ||
+          !replica.trim() ||
+          busy === (selected && targetLabel(selected))}
+      >
         Register
       </button>
     </form>

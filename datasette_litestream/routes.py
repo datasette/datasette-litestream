@@ -22,33 +22,65 @@ from .contract import (
     UnregisterBody,
 )
 from .process import get_process
-from .replicas import (
-    INTERNAL_DB_NAME,
-    expand_replica_template,
-    internal_database_path,
-    resolve_replica_url,
-)
+from .replicas import internal_database_path, resolve_replica_url
 from .router import MANAGE_ACTION, VIEW_STATUS_ACTION, permission_required, router
 
 
 def _resolve_db_path(datasette, db_name):
-    """Return the resolved file path for a Datasette database name, or None."""
+    """Return the resolved file path for an attached database name, or None."""
     db = datasette.databases.get(db_name)
-    if db is None and db_name == INTERNAL_DB_NAME:
-        internal_path, _ = internal_database_path(datasette)
-        return str(internal_path.resolve()) if internal_path else None
     if db is None or db.path is None:
         return None
     return str(Path(db.path).resolve())
 
 
+def _resolve_target(datasette, litestream_process, body, fallback_registered=True):
+    """Resolve a request body's target to (db_path, db_name, error_response).
+
+    ``db_name`` is None for the internal database, which is addressed by the
+    body's ``internal`` flag and identified by path — never by name, since an
+    attached database could legitimately be called anything. For named
+    databases, ``fallback_registered`` also consults the paths recorded at
+    registration time, so a database detached from Datasette can still be
+    synced or unregistered.
+    """
+    if body.internal:
+        internal_path, reason = internal_database_path(datasette)
+        if internal_path is None:
+            return (
+                None,
+                None,
+                Response.json(
+                    {"ok": False, "error": f"no usable internal database: {reason}"},
+                    status=400,
+                ),
+            )
+        return str(internal_path.resolve()), None, None
+    db_path = _resolve_db_path(datasette, body.database)
+    if db_path is None and fallback_registered:
+        db_path = litestream_process.registered_names.get(body.database)
+    if db_path is None:
+        return (
+            None,
+            None,
+            Response.json(
+                {
+                    "ok": False,
+                    "error": f"unknown or in-memory database: {body.database}",
+                },
+                status=404,
+            ),
+        )
+    return db_path, body.database, None
+
+
 def _suggested_replica(datasette, db_name, db_path):
-    """Resolve the configured replica URL for a database, if any."""
+    """Resolve the configured replica URL for an attached database, if any."""
     return resolve_replica_url(
         db_name,
         Path(db_path),
         get_database_config(datasette, db_name),
-        get_config(datasette).replica_template,
+        get_config(datasette).replica_url_template,
     )
 
 
@@ -78,15 +110,17 @@ def _daemon_error_response(e):
 
 async def _build_status(datasette, litestream_process, can_manage):
     """Assemble the JSON status payload consumed by the admin UI."""
-    # Map litestream's absolute paths back to Datasette database names.
+    # Map litestream's absolute paths back to Datasette database names. The
+    # internal database is matched by path and flagged, never named.
     name_by_path = {}
     for db_name, db in datasette.databases.items():
         if db.path is None:
             continue
         name_by_path[str(Path(db.path).resolve())] = db_name
     internal_path, _ = internal_database_path(datasette)
-    if internal_path is not None:
-        name_by_path.setdefault(str(internal_path.resolve()), INTERNAL_DB_NAME)
+    internal_resolved = (
+        str(internal_path.resolve()) if internal_path is not None else None
+    )
     # Databases registered with the daemon but since detached from Datasette
     # keep their last-known name.
     for db_name, path in litestream_process.registered_names.items():
@@ -105,9 +139,11 @@ async def _build_status(datasette, litestream_process, can_manage):
             for entry in databases:
                 path = entry.get("path")
                 registered_paths.add(path)
+                internal = path == internal_resolved
                 managed.append(
                     {
-                        "database": name_by_path.get(path),
+                        "database": None if internal else name_by_path.get(path),
+                        "internal": internal,
                         "path": path,
                         "status": entry.get("status"),
                         "last_sync_at": entry.get("last_sync_at"),
@@ -136,28 +172,15 @@ async def _build_status(datasette, litestream_process, can_manage):
         )
 
     # A persistent internal database can be registered like any other.
-    if internal_path is not None:
-        resolved = str(internal_path.resolve())
-        if resolved not in registered_paths:
-            config = get_config(datasette)
-            if isinstance(config.replicate_internal, str):
-                suggested = expand_replica_template(
-                    config.replicate_internal, INTERNAL_DB_NAME, internal_path
-                )
-            else:
-                suggested = resolve_replica_url(
-                    INTERNAL_DB_NAME,
-                    internal_path,
-                    None,
-                    config.replica_template,
-                )
-            available.append(
-                {
-                    "database": INTERNAL_DB_NAME,
-                    "path": resolved,
-                    "suggested_replica": suggested,
-                }
-            )
+    if internal_resolved is not None and internal_resolved not in registered_paths:
+        available.append(
+            {
+                "database": None,
+                "internal": True,
+                "path": internal_resolved,
+                "suggested_replica": get_config(datasette).internal_replica_url,
+            }
+        )
 
     return {
         "running": True,
@@ -204,8 +227,8 @@ async def litestream_api_status(datasette, request):
     )
 
 
-async def _db_action(datasette, db_name, method_name, **kwargs):
-    """Shared handler for sync/start/stop: resolve the db and call the client.
+async def _db_action(datasette, body, method_name, **kwargs):
+    """Shared handler for sync/start/stop: resolve the target and call the client.
 
     Permission checks happen in the route decorators before this runs.
     """
@@ -215,28 +238,18 @@ async def _db_action(datasette, db_name, method_name, **kwargs):
             {"ok": False, "error": "litestream is not running"}, status=503
         )
 
-    if not db_name:
-        return Response.json(
-            {"ok": False, "error": "'database' is required"}, status=400
-        )
-
-    # Prefer the attached database's path; fall back to the path recorded at
-    # registration time in case the database was detached from Datasette.
-    db_path = _resolve_db_path(datasette, db_name)
-    if db_path is None:
-        db_path = litestream_process.registered_names.get(db_name)
-    if db_path is None:
-        return Response.json(
-            {"ok": False, "error": f"unknown or in-memory database: {db_name}"},
-            status=404,
-        )
+    db_path, db_name, error = _resolve_target(datasette, litestream_process, body)
+    if error is not None:
+        return error
 
     try:
         method = getattr(litestream_process._require_client(), method_name)
         result = await asyncio.to_thread(method, db_path, **kwargs)
     except DAEMON_ERRORS as e:
         return _daemon_error_response(e)
-    return Response.json({"ok": True, "database": db_name, "result": result})
+    return Response.json(
+        {"ok": True, "database": db_name, "internal": body.internal, "result": result}
+    )
 
 
 @router.POST(r"^/-/litestream/api/sync$", output=ActionResult)
@@ -247,7 +260,7 @@ async def litestream_api_sync(
     """POST /-/litestream/api/sync  {"database": "<name>"}"""
     # The control-socket client's 30s transport timeout bounds this blocking
     # sync; an over-long first sync surfaces as a 504 rather than hanging.
-    return await _db_action(datasette, body.database, "sync", wait=True)
+    return await _db_action(datasette, body, "sync", wait=True)
 
 
 @router.POST(r"^/-/litestream/api/start$", output=ActionResult)
@@ -256,7 +269,7 @@ async def litestream_api_start(
     datasette, request, body: Annotated[DbActionBody, Body()]
 ):
     """POST /-/litestream/api/start  {"database": "<name>"}"""
-    return await _db_action(datasette, body.database, "start")
+    return await _db_action(datasette, body, "start")
 
 
 @router.POST(r"^/-/litestream/api/stop$", output=ActionResult)
@@ -265,7 +278,7 @@ async def litestream_api_stop(
     datasette, request, body: Annotated[DbActionBody, Body()]
 ):
     """POST /-/litestream/api/stop  {"database": "<name>"}"""
-    return await _db_action(datasette, body.database, "stop")
+    return await _db_action(datasette, body, "stop")
 
 
 @router.POST(r"^/-/litestream/register$", output=ActionResult)
@@ -273,11 +286,13 @@ async def litestream_api_stop(
 async def litestream_register(
     datasette, request, body: Annotated[RegisterBody, Body()]
 ):
-    """POST /-/litestream/register  {"database": "<name>", "replica": "<url?>"}
+    """POST /-/litestream/register  {"database": "<name>"|"internal": true, "replica": "<url?>"}
 
-    Registers a currently-attached Datasette database with the running litestream
-    daemon at runtime. The replica URL may be supplied in the body, otherwise it
-    is resolved from the plugin's ``replica-template`` / db-level config.
+    Registers a currently-attached Datasette database (or the internal
+    database) with the running litestream daemon at runtime. The replica URL
+    may be supplied in the body, otherwise it is resolved from the plugin's
+    configuration (db-level ``replica`` / ``replica-url-template``, or
+    ``internal-replica-url`` for the internal database).
     """
     litestream_process = get_process(datasette)
     if litestream_process is None:
@@ -285,23 +300,15 @@ async def litestream_register(
             {"ok": False, "error": "litestream is not running"}, status=503
         )
 
-    db_name = body.database
-    if not db_name:
-        return Response.json(
-            {"ok": False, "error": "'database' is required"}, status=400
-        )
-
-    db_path = _resolve_db_path(datasette, db_name)
-    if db_path is None:
-        return Response.json(
-            {"ok": False, "error": f"unknown or in-memory database: {db_name}"},
-            status=404,
-        )
+    db_path, db_name, error = _resolve_target(
+        datasette, litestream_process, body, fallback_registered=False
+    )
+    if error is not None:
+        return error
 
     # Never hand litestream an immutable database: it would flip the file to
-    # WAL journal mode. (_internal is not in datasette.databases and is
-    # always mutable, so it naturally bypasses this check.)
-    db = datasette.databases.get(db_name)
+    # WAL journal mode. (The internal database is always mutable.)
+    db = datasette.databases.get(db_name) if db_name is not None else None
     if db is not None and not db.is_mutable:
         return Response.json(
             {"ok": False, "error": f"database '{db_name}' is immutable"},
@@ -309,7 +316,10 @@ async def litestream_register(
         )
 
     replica_url = body.replica
-    suggested = _suggested_replica(datasette, db_name, db_path)
+    if body.internal:
+        suggested = get_config(datasette).internal_replica_url
+    else:
+        suggested = _suggested_replica(datasette, db_name, db_path)
     if not replica_url:
         replica_url = suggested
     elif get_config(datasette).restrict_runtime_replicas and replica_url != suggested:
@@ -341,6 +351,7 @@ async def litestream_register(
         {
             "ok": True,
             "database": db_name,
+            "internal": body.internal,
             "path": db_path,
             "replica": replica_url,
             "status": result.get("status"),
@@ -353,7 +364,7 @@ async def litestream_register(
 async def litestream_unregister(
     datasette, request, body: Annotated[UnregisterBody, Body()]
 ):
-    """POST /-/litestream/unregister  {"database": "<name>", "timeout": <int?>}
+    """POST /-/litestream/unregister  {"database": "<name>"|"internal": true, "timeout": <int?>}
 
     Removes a database from litestream replication at runtime. The daemon
     performs a final sync to the replica before dropping it.
@@ -364,22 +375,9 @@ async def litestream_unregister(
             {"ok": False, "error": "litestream is not running"}, status=503
         )
 
-    db_name = body.database
-    if not db_name:
-        return Response.json(
-            {"ok": False, "error": "'database' is required"}, status=400
-        )
-
-    # Prefer the attached database's path; fall back to the path recorded at
-    # registration time in case the database was detached from Datasette.
-    db_path = _resolve_db_path(datasette, db_name)
-    if db_path is None:
-        db_path = litestream_process.registered_names.get(db_name)
-    if db_path is None:
-        return Response.json(
-            {"ok": False, "error": f"unknown or in-memory database: {db_name}"},
-            status=404,
-        )
+    db_path, db_name, error = _resolve_target(datasette, litestream_process, body)
+    if error is not None:
+        return error
 
     timeout = body.timeout
     try:
@@ -393,6 +391,7 @@ async def litestream_unregister(
         {
             "ok": True,
             "database": db_name,
+            "internal": body.internal,
             "path": db_path,
             "status": result.get("status"),
             "txid": result.get("txid"),
