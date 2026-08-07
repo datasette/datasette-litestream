@@ -1,7 +1,12 @@
 <script lang="ts">
   import type { ManagedDatabase, Target } from "./types";
   import { targetLabel } from "./types";
-  import { formatTimestamp, middleTruncate, relativeTime } from "./format";
+  import {
+    formatTimestamp,
+    middleTruncate,
+    relativeTime,
+    restoreCommand,
+  } from "./format";
 
   let {
     databases,
@@ -36,10 +41,8 @@
     return (status ?? "").toLowerCase().includes("stop");
   }
 
-  function restoreCommand(db: ManagedDatabase): string | null {
-    if (!db.replica) return null;
-    const filename = db.path.split("/").pop() || "restored.db";
-    return `litestream restore -o ${filename} '${db.replica}'`;
+  function restoreFor(db: ManagedDatabase): string | null {
+    return db.replica ? restoreCommand(db.path, db.replica) : null;
   }
 
   // Ticks once a second so the "N seconds ago" labels stay current.
@@ -132,7 +135,7 @@
 
 <dialog class="ls-dialog" bind:this={dialogEl} onclose={() => (detail = null)}>
   {#if detail}
-    {@const restore = restoreCommand(detail)}
+    {@const restore = restoreFor(detail)}
     <h3>
       {detail.internal
         ? "internal database"

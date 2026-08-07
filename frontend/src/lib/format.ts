@@ -50,3 +50,16 @@ export function relativeTime(
   }
   return null;
 }
+
+// POSIX single-quoting: close the quote, emit an escaped quote, reopen.
+// Replica URLs and filenames land in a copy-pasteable shell command; a
+// manage-permission user can register a URL containing quotes/metacharacters,
+// so unescaped interpolation would hand admins a command that executes it.
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+export function restoreCommand(path: string, replica: string): string {
+  const filename = path.split("/").pop() || "restored.db";
+  return `litestream restore -o ${shellQuote(filename)} ${shellQuote(replica)}`;
+}

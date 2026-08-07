@@ -4,6 +4,7 @@ import {
   formatTimestamp,
   middleTruncate,
   relativeTime,
+  restoreCommand,
 } from "../format";
 
 describe("formatUptime", () => {
@@ -57,5 +58,28 @@ describe("middleTruncate", () => {
     const result = middleTruncate("/Users/alex/work/simonw/demo/backups/demo.db", 21);
     expect(result).toBe("/Users/ale…ps/demo.db");
     expect(result.length).toBe(21);
+  });
+});
+
+describe("restoreCommand", () => {
+  it("quotes plain paths and URLs", () => {
+    expect(restoreCommand("/tmp/data.db", "s3://bucket/data")).toBe(
+      "litestream restore -o 'data.db' 's3://bucket/data'",
+    );
+  });
+
+  it("keeps filenames with spaces as a single shell word", () => {
+    expect(restoreCommand("/tmp/my data.db", "s3://b/x")).toBe(
+      "litestream restore -o 'my data.db' 's3://b/x'",
+    );
+  });
+
+  it("cannot be escaped by single quotes in the replica URL", () => {
+    // A manage-permission user can register a URL like this; the copy-paste
+    // command must treat it as data, not shell.
+    const cmd = restoreCommand("/tmp/x.db", "file:///tmp/x'$(rm -rf ~)'");
+    expect(cmd).toBe(
+      "litestream restore -o 'x.db' 'file:///tmp/x'\\''$(rm -rf ~)'\\'''",
+    );
   });
 });
