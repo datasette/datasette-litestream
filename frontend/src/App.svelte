@@ -42,6 +42,8 @@
 
   // Non-2xx responses carry the API's {ok: false, error} body in `error`;
   // Pydantic validation failures carry {error, errors} with no `ok` field.
+  // Returns whether the action succeeded, so callers (the register form)
+  // can reset their own state.
   async function run(
     label: string,
     fn: () => Promise<{
@@ -49,13 +51,15 @@
       error?: unknown;
       response: Response;
     }>,
-  ) {
+  ): Promise<boolean> {
     busy = label;
     notice = null;
+    let ok = false;
     try {
       const { data, error, response } = await fn();
       if (data?.ok) {
         notice = `${label}: ${data.status ?? "ok"}`;
+        ok = true;
       } else {
         const err = (error ?? {}) as { error?: string };
         notice = `Error: ${data?.error ?? err.error ?? `HTTP ${response.status}`}`;
@@ -66,6 +70,7 @@
       busy = null;
       await refresh();
     }
+    return ok;
   }
 
   // The internal database is addressed with {internal: true}, never by name.

@@ -9,13 +9,17 @@
   }: {
     available: AvailableDatabase[];
     busy: string | null;
-    onregister: (target: Target, replica: string) => void;
+    onregister: (target: Target, replica: string) => Promise<boolean>;
   } = $props();
 
   // Options are keyed by path: it is unique, and the internal database has
   // no addressable name (only the `internal` flag).
   let selectedPath = $state("");
   let replica = $state("");
+  // The suggestion the input was last prefilled with — so switching the
+  // selection can tell "still the previous default" (replace it) apart
+  // from "hand-edited by the user" (leave it alone).
+  let lastSuggestion = $state("");
 
   const selected = $derived(
     available.find((a) => a.path === selectedPath) ?? null,
@@ -25,17 +29,30 @@
     return a.internal ? "internal database" : (a.database ?? a.path);
   }
 
-  // When the selected database changes, prefill the replica with its suggestion.
+  // Prefill the replica with the selection's suggestion. An empty input or
+  // one still holding the previous suggestion follows the selection; a
+  // hand-edited value is never overwritten. Without the lastSuggestion
+  // check, switching databases would silently keep the previous database's
+  // replica URL and register the new one into the old one's backup.
   $effect(() => {
-    if (selected && selected.suggested_replica && !replica) {
-      replica = selected.suggested_replica;
+    const suggestion = selected?.suggested_replica ?? "";
+    if (!replica || replica === lastSuggestion) {
+      replica = suggestion;
     }
+    lastSuggestion = suggestion;
   });
 
-  function submit(event: Event) {
+  async function submit(event: Event) {
     event.preventDefault();
     if (!selected || !replica.trim()) return;
-    onregister(selected, replica.trim());
+    const ok = await onregister(selected, replica.trim());
+    if (ok) {
+      // The registered database leaves `available`; clear the form so the
+      // stale URL cannot leak into the next registration.
+      selectedPath = "";
+      replica = "";
+      lastSuggestion = "";
+    }
   }
 </script>
 
