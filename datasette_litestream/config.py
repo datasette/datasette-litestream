@@ -110,9 +110,9 @@ class LoggingConfig(BaseModel):
     """``logging`` config block, passed through to the litestream daemon.
 
     The daemon always runs with litestream's ``logging.stderr: true`` so its
-    output lands in the plugin's logfile (shown on the admin page and dumped
-    on startup failure) instead of the console; ``path`` redirects that
-    logfile somewhere durable.
+    output lands in the plugin's logfile (dumped to the console on startup
+    failure) instead of interleaving with Datasette's output; ``path``
+    redirects that logfile somewhere durable.
     """
 
     model_config = ConfigDict(

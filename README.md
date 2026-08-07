@@ -80,7 +80,7 @@ The following are valid keys that are allowed when specifying top-level plugin c
 - `internal-replica-url`: The replica URL for Datasette's internal database (e.g. `s3://my-bucket/internal`). The URL is used literally — the `$DB_NAME` etc. template variables are not expanded, and the internal database is never picked up by the `replica-url-template` sweep. Requires running Datasette with `--internal /path/to/internal.db` — without that the internal database is an ephemeral temp file, and a warning is printed to the console and shown on the admin page instead. The same warning is emitted for any attached in-memory database the configuration would otherwise replicate.
 - `metrics-addr`: Defines the [`addr:` Litestream option](https://litestream.io/reference/config/#metrics), which will expose a Prometheus endpoint at the given address. This endpoint is **unauthenticated** and also serves Go's `/debug/pprof` handlers, and an address without a host part (like `:9090`) listens on **all interfaces** — bind it to loopback (`127.0.0.1:9090`) or firewall it in production. The plugin prints a startup warning (also shown on the admin page) for all-interfaces binds.
 - `restrict-runtime-replicas`: When `true`, the runtime register API only accepts the replica URL derived from configuration (a database-level `replica` or the `replica-url-template` template) — caller-supplied URLs that differ are rejected. Defaults to `false`. See the permissions note under [Admin UI](#admin-ui).
-- `logging`: Controls the Litestream daemon's logging. Litestream's log output is always captured to a log file (shown on the admin page) instead of being interleaved with Datasette's console output. The sub-keys deliberately mirror [Litestream's own `logging:` config block](https://litestream.io/reference/config/#logging) (which is why the format key is `type`, not `format`):
+- `logging`: Controls the Litestream daemon's logging. Litestream's log output is always captured to a log file instead of being interleaved with Datasette's console output (the file's contents are dumped to the console if the daemon fails during startup). The sub-keys deliberately mirror [Litestream's own `logging:` config block](https://litestream.io/reference/config/#logging) (which is why the format key is `type`, not `format`):
   - `logging.level`: One of `debug`, `info`, `warn`, `error`. Defaults to `info`.
   - `logging.type`: Log format, `text` or `json`. Defaults to `text`.
   - `logging.path`: Write logs to this file (opened in append mode) instead of a session-scoped temporary file. Useful for long-lived deployments where you want the logs somewhere durable (and rotatable).
@@ -175,13 +175,25 @@ The `session-token` field is optional.
 
 #### How credential refresh works
 
-1. On startup, credentials are loaded from the file or command
+1. On startup, credentials are loaded from the file or command; a failure
+   here aborts startup with an error
 2. Every `refresh-interval` seconds, the file is re-read or the command is re-executed
 3. If the credentials have changed, `datasette-litestream` will:
    - Stop the current litestream daemon
    - Restart it with the new credentials in its environment
    - Re-register every database that was being replicated
-4. If loading credentials fails during a refresh check, the Datasette process will exit with an error
+4. If loading credentials fails during a refresh check, the failure is
+   logged and the daemon keeps replicating with the last-known-good
+   credentials (valid until the provider expires them); the next tick
+   retries. Repeated consecutive failures surface as a warning on the
+   admin page. Taking down the whole Datasette instance over a
+   replication-credentials hiccup would be strictly worse.
+
+The same background loop also supervises the daemon itself — a crashed
+litestream process is restarted (with the current credentials) and any
+database missing from the daemon's list is re-registered. Instances
+without a dynamic credential source run this supervision on a fixed
+30-second interval.
 
 Credentials are passed to Litestream through the daemon's environment (as
 `AWS_*` variables) rather than written into the generated config file.
