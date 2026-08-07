@@ -52,22 +52,63 @@
     return () => clearInterval(id);
   });
 
-  let detail = $state<ManagedDatabase | null>(null);
+  // The dialog tracks its row by path and derives the row data from the
+  // live `databases` array, so an open dialog reflects each poll instead of
+  // freezing the snapshot captured at open time.
+  let detailPath = $state<string | null>(null);
   let dialogEl = $state<HTMLDialogElement | null>(null);
   let copied = $state(false);
+  let copyFailed = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
+  const detail = $derived(
+    detailPath === null
+      ? null
+      : (databases.find((d) => d.path === detailPath) ?? null),
+  );
+
+  // Row unregistered (elsewhere) while its dialog is open: close it rather
+  // than showing stale data with no backing row.
+  $effect(() => {
+    if (detailPath !== null && detail === null) {
+      detailPath = null;
+      dialogEl?.close();
+    }
+  });
+
   function openDetails(db: ManagedDatabase) {
-    detail = db;
+    detailPath = db.path;
     copied = false;
+    copyFailed = false;
     dialogEl?.showModal();
   }
 
   async function copyCommand(command: string) {
-    await navigator.clipboard.writeText(command);
-    copied = true;
-    clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => (copied = false), 1500);
+    copyFailed = false;
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(command);
+      } else {
+        // Non-secure contexts (plain HTTP off localhost) have no
+        // navigator.clipboard; fall back to the legacy selection path.
+        const textarea = document.createElement("textarea");
+        textarea.value = command;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand("copy");
+        textarea.remove();
+        if (!ok) throw new Error("execCommand copy failed");
+      }
+      copied = true;
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => (copied = false), 1500);
+    } catch {
+      // Communicate instead of silently doing nothing (or throwing an
+      // unhandled rejection); the command stays visible to select manually.
+      copyFailed = true;
+    }
   }
 </script>
 
@@ -133,7 +174,7 @@
   {/if}
 </div>
 
-<dialog class="ls-dialog" bind:this={dialogEl} onclose={() => (detail = null)}>
+<dialog class="ls-dialog" bind:this={dialogEl} onclose={() => (detailPath = null)}>
   {#if detail}
     {@const restore = restoreFor(detail)}
     <h3>
@@ -166,7 +207,11 @@
             class="ls-copy"
             class:ls-copied={copied}
             aria-label="Copy restore command"
-            title={copied ? "Copied!" : "Copy to clipboard"}
+            title={copyFailed
+              ? "Copy failed — select the command manually"
+              : copied
+                ? "Copied!"
+                : "Copy to clipboard"}
             onclick={() => copyCommand(restore)}
           >
             {#if copied}
@@ -205,6 +250,11 @@
               </svg>
             {/if}
           </button>
+          {#if copyFailed}
+            <span class="ls-muted" role="alert">
+              copy failed — select the command manually
+            </span>
+          {/if}
         </dd>
       {/if}
     </dl>

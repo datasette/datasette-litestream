@@ -1,6 +1,6 @@
 // Shapes of the datasette-litestream JSON API, aliased from the generated
-// frontend/api.d.ts (regenerate with `just types-routes`). The Python models
-// in datasette_litestream/_models.py are the source of truth.
+// frontend/api.d.ts (regenerate with `just contract-sync`). The Python models
+// in datasette_litestream/contract.py are the source of truth.
 
 import type { components, paths } from "../../api.d.ts";
 
