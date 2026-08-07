@@ -6,6 +6,8 @@ from conftest import table
 from datasette.app import Datasette
 from datasette.database import Database
 
+from datasette_litestream.process import get_process
+
 actor_root = {"a": {"id": "root"}}
 
 
@@ -112,6 +114,30 @@ async def test_api_status_not_running():
     response = await ds.client.get("/-/litestream/api/status", cookies=root_cookies(ds))
     assert response.status_code == 200
     assert response.json() == {"running": False}
+
+
+@pytest.mark.asyncio
+async def test_api_status_running_false_for_dead_daemon(litestream_binary, tmpdir):
+    """A crashed daemon (process object still present) must not report
+    running=true — the payload keeps its context fields so the UI can still
+    show warnings and available databases."""
+    db_path = str(tmpdir / "data.db")
+    table(db_path, "t").insert({"v": 1})
+    ds, _backups = _datasette(tmpdir, [db_path])
+    await ds.invoke_startup()
+
+    litestream_process = get_process(ds)
+    assert litestream_process is not None
+    litestream_process.process.kill()
+    litestream_process.process.wait()
+
+    response = await ds.client.get("/-/litestream/api/status", cookies=root_cookies(ds))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["running"] is False
+    # Context is still present, unlike the never-started case.
+    assert "available" in payload
+    assert "warnings" in payload
 
 
 # --- sync / stop / start ----------------------------------------------------

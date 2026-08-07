@@ -1286,6 +1286,19 @@ def _tracked_process(client):
     return proc
 
 
+def test_daemon_alive_property():
+    proc = LitestreamProcess()
+    assert not proc.daemon_alive  # nothing started
+    proc.client = cast(LitestreamClient, FakeClient())
+    assert not proc.daemon_alive  # client but no child (failed restart)
+    proc.process = cast(
+        subprocess.Popen, SimpleNamespace(poll=lambda: None)
+    )  # child running
+    assert proc.daemon_alive
+    proc.process = cast(subprocess.Popen, SimpleNamespace(poll=lambda: 137))
+    assert not proc.daemon_alive  # child exited
+
+
 def test_unregister_read_timeout_still_prunes_state():
     """A read timeout means the daemon took the request and will finish the
     unregister on its own; keeping the map entry would let a later rotation

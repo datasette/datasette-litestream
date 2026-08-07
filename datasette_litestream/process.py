@@ -375,6 +375,20 @@ class LitestreamProcess:
             )
         return self.client
 
+    @property
+    def daemon_alive(self) -> bool:
+        """True while the launched daemon is actually running.
+
+        ``process`` alone is not enough: a crashed child leaves it set (poll()
+        is how we notice), and a failed rotation restart leaves ``process``
+        None while this object lives on.
+        """
+        return (
+            self.process is not None
+            and self.process.poll() is None
+            and self.client is not None
+        )
+
     def register_db(
         self, db_path: str, replica_url: str, name: str | None = None
     ) -> dict:

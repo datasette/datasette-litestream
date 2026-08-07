@@ -129,8 +129,11 @@ class AvailableDatabase(BaseModel):
 class Status(BaseModel):
     """Payload of GET /-/litestream/api/status.
 
-    Only ``running`` is always present: when the daemon is not running the
-    endpoint returns ``{"running": false}`` and nothing else.
+    Only ``running`` is always present. When the plugin never started a
+    daemon the endpoint returns ``{"running": false}`` and nothing else;
+    when the daemon was started but has died (crash, failed rotation
+    restart), ``running`` is false and the rest of the payload — warnings,
+    available databases — is still populated so the UI can show context.
     """
 
     running: bool

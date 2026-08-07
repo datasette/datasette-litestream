@@ -183,7 +183,9 @@ async def _build_status(datasette, litestream_process, can_manage):
         )
 
     return {
-        "running": True,
+        # Honest liveness (poll() based): a crashed daemon or a failed
+        # rotation restart must not report running=true with a null payload.
+        "running": litestream_process.daemon_alive,
         "can_manage": can_manage,
         "metrics_enabled": litestream_process.metrics_addr is not None,
         "daemon": daemon,
