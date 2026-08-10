@@ -1,537 +1,348 @@
-from datasette import hookimpl, Forbidden
+"""Datasette plugin hooks for datasette-litestream.
+
+Package layout (mirrors the other datasette-* plugins):
+
+- ``router.py``   — shared route registry + ``permission_required`` decorator
+- ``routes.py``   — route handlers for the admin UI and JSON API
+- ``contract.py`` — Pydantic request/response models (the API contract)
+- ``process.py``  — the litestream daemon: lifecycle, credentials, registry
+- ``replicas.py`` — replica URL / internal database resolution helpers
+"""
+
+import asyncio
+import sys
+import uuid
+from pathlib import Path
+
+import httpx
+from datasette import hookimpl
 from datasette.permissions import Action
 from datasette.utils import StartupError
-from datasette.utils.asgi import Response
-from pathlib import Path
-import asyncio
-import atexit
-import httpx
-import json
-import os
-import shlex
-import shutil
-import subprocess
-import sys
-import tempfile
-import time
-import uuid
-from prometheus_client.parser import text_string_to_metric_families
+from datasette_vite import vite_entry
+from pydantic import ValidationError
 
-
-def load_credentials_from_file(path: str) -> dict:
-    """Load credentials from a JSON file."""
-    with open(path) as f:
-        data = json.load(f)
-    if "access-key-id" not in data or "secret-access-key" not in data:
-        raise StartupError(
-            f"Credentials file {path} must contain 'access-key-id' and 'secret-access-key'"
-        )
-    result = {
-        "access-key-id": data["access-key-id"],
-        "secret-access-key": data["secret-access-key"],
-    }
-    if "session-token" in data:
-        result["session-token"] = data["session-token"]
-    return result
-
-
-def load_credentials_from_command(command: str) -> dict:
-    """Execute a command and parse its JSON output for credentials."""
-    args = shlex.split(command)
-    result = subprocess.run(args, capture_output=True, text=True, timeout=30)
-    if result.returncode != 0:
-        raise StartupError(
-            f"Credentials command failed with return code {result.returncode}: {result.stderr}"
-        )
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError as e:
-        raise StartupError(f"Credentials command output is not valid JSON: {e}")
-    if "access-key-id" not in data or "secret-access-key" not in data:
-        raise StartupError(
-            "Credentials command output must contain 'access-key-id' and 'secret-access-key'"
-        )
-    creds = {
-        "access-key-id": data["access-key-id"],
-        "secret-access-key": data["secret-access-key"],
-    }
-    if "session-token" in data:
-        creds["session-token"] = data["session-token"]
-    return creds
-
-
-def get_dynamic_credentials(plugin_config: dict) -> dict:
-    """Get credentials from file or command if configured."""
-    credentials_file = plugin_config.get("credentials-file")
-    credentials_command = plugin_config.get("credentials-command")
-
-    if credentials_file:
-        return load_credentials_from_file(credentials_file)
-    elif credentials_command:
-        return load_credentials_from_command(credentials_command)
-    return None
-
-
-def credentials_hash(creds: dict) -> str:
-    """Return a hash string for comparing credentials."""
-    if creds is None:
-        return ""
-    return json.dumps(creds, sort_keys=True)
-
-
-REDACTED_KEYS = {"secret-access-key", "session-token"}
-
-
-def redact_credentials(config: dict) -> dict:
-    """Return a copy of config with sensitive credentials redacted."""
-    redacted = {}
-    for key, value in config.items():
-        if key in REDACTED_KEYS:
-            redacted[key] = "***REDACTED***"
-        else:
-            redacted[key] = value
-    return redacted
-
-
-class LitestreamProcess:
-    """Manages a litestream subprocess for database replication."""
-
-    # The underlying subprocess.Popen() that gets kicked off
-    process = None
-
-    # the litestream.yaml config, as a dict
-    litestream_config = None
-
-    # Temporary file where the subprocess logs get forwarded to
-    logfile = None
-
-    # Temporary file where the litestream.yaml gets saved to
-    configfile = None
-
-    # Hash of current credentials for change detection
-    current_credentials_hash = None
-
-    # atexit handler function (stored so we can unregister it)
-    _atexit_handler = None
-
-    # Background task for credential refresh (stored to prevent GC)
-    _refresh_task = None
-
-    def __init__(self):
-        self.logfile = tempfile.NamedTemporaryFile(suffix=".log", delete=True)
-
-    def start_replicate(self):
-        """Starts the litestream process with the given config, logging to logfile."""
-        litestream_path = resolve_litestream_path()
-
-        self.configfile = tempfile.NamedTemporaryFile(suffix=".yml", delete=False)
-
-        # Build environment - litestream needs credentials as env vars when using session tokens
-        env = os.environ.copy()
-        if "session-token" in self.litestream_config:
-            # When using session tokens (STS credentials), pass all credentials via environment
-            # because litestream doesn't support session-token in config file and prefers
-            # config file credentials over env vars.
-            # We must use AWS_* vars directly (not LITESTREAM_*) because litestream's
-            # applyLitestreamEnv() only copies LITESTREAM_* to AWS_* if AWS_* is not already set.
-            # If the user has existing AWS credentials in their environment, they would take
-            # precedence and cause "InvalidToken" errors when combined with our session token.
-            env["AWS_ACCESS_KEY_ID"] = self.litestream_config["access-key-id"]
-            env["AWS_SECRET_ACCESS_KEY"] = self.litestream_config["secret-access-key"]
-            env["AWS_SESSION_TOKEN"] = self.litestream_config["session-token"]
-            # Write config without credentials - they'll come from env vars
-            config_for_file = {
-                k: v
-                for k, v in self.litestream_config.items()
-                if k not in ("access-key-id", "secret-access-key", "session-token")
-            }
-        else:
-            config_for_file = self.litestream_config
-
-        with self.configfile as f:
-            f.write(bytes(json.dumps(config_for_file), "utf-8"))
-            config_path = Path(f.name)
-
-        self.process = subprocess.Popen(
-            [litestream_path, "replicate", "-config", str(config_path)],
-            stderr=self.logfile,
-            env=env,
-        )
-
-        # wait 500ms to see if there are instant errors (typically config typos)
-        time.sleep(0.5)
-        status = self.process.poll()
-        if status is not None:
-            logs = open(self.logfile.name, "r").read()
-            raise Exception(
-                f"datasette-litestream litestream process failed with return code {status}. Logs:"
-                + logs
-            )
-
-        # Sometimes Popen doesn't die on exit, so explicitly attempt to kill it on process exit
-        def onexit():
-            if self.process:
-                self.process.kill()
-            if self.configfile and Path(self.configfile.name).exists():
-                Path(self.configfile.name).unlink()
-
-        self._atexit_handler = onexit
-        atexit.register(onexit)
-
-    def stop_replicate(self):
-        """Gracefully stop the litestream process."""
-        if self._atexit_handler:
-            atexit.unregister(self._atexit_handler)
-            self._atexit_handler = None
-
-        if self.process:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
-            self.process = None
-
-        if self.configfile and Path(self.configfile.name).exists():
-            Path(self.configfile.name).unlink(missing_ok=True)
-            self.configfile = None
-
-    def update_credentials(self, new_creds: dict):
-        """Update credentials in the litestream config."""
-        self.litestream_config["access-key-id"] = new_creds["access-key-id"]
-        self.litestream_config["secret-access-key"] = new_creds["secret-access-key"]
-        if "session-token" in new_creds:
-            self.litestream_config["session-token"] = new_creds["session-token"]
-        elif "session-token" in self.litestream_config:
-            # Remove session token if no longer present in new credentials
-            del self.litestream_config["session-token"]
-        self.current_credentials_hash = credentials_hash(new_creds)
-
-    def restart_with_new_credentials(self, new_creds: dict):
-        """Stop the current process and restart with new credentials."""
-        self.stop_replicate()
-        self.update_credentials(new_creds)
-        self.start_replicate()
-
-
-# global variable that tracks each datasette-litestream instance. There is usually just 1,
-# but in test suites there may be multiple Datasette instances.
-# The keys are a UUID generated in the startup hook, values are a LitestreamProcess
-processes = {}
-
-# The uuid generated at startup is stored on the datasette object, stored in this key attr.
-# Meant so we can retrieve it in the separate litestream_status route
-DATASETTE_LITESTREAM_PROCESS_KEY = "__DATASETTE_LITESTREAM_PROCESS_KEY__"
-
-
-def resolve_litestream_path():
-    """resolives the full path to a litestream binary. Hopefully is bundled in the installed wheel"""
-
-    # First try to see if litestream was bundled with that package, in a pre-built wheel
-    wheel_path = Path(__file__).resolve().parent / "bin" / "litestream"
-    if wheel_path.exists():
-        return str(wheel_path)
-
-    # Fallback to any litestream binary on the system.
-    executable_path = shutil.which("litestream")
-
-    if executable_path is None:
-        raise Exception("litestream not found.")
-
-    return str(executable_path)
+from . import routes  # noqa: F401  (imports register the route handlers)
+from ._client import LitestreamControlError
+from .config import LitestreamConfig, get_config, get_database_config
+from .contract import validate_replica_url
+from .process import (
+    DATASETTE_LITESTREAM_PROCESS_KEY,
+    LitestreamProcess,
+    credentials_hash,
+    get_dynamic_credentials,
+    get_process,
+    processes,
+)
+from .replicas import internal_database_path, resolve_replica_url
+from .router import MANAGE_ACTION, VIEW_STATUS_ACTION, router
 
 
 @hookimpl
 def register_actions(datasette):
     return [
         Action(
-            name="litestream-view-status",
+            name=VIEW_STATUS_ACTION,
             description="View litestream statistics and status updates.",
-        )
+        ),
+        Action(
+            name=MANAGE_ACTION,
+            description="Add or remove databases from litestream replication at runtime.",
+        ),
     ]
+
+
+@hookimpl
+def register_routes():
+    return router.routes()
 
 
 @hookimpl
 def menu_links(datasette, actor):
     async def inner():
         if (
-            await datasette.allowed(actor=actor, action="litestream-view-status")
-            # TODO why is this needed?
-            and datasette.plugin_config("datasette-litestream") is not None
+            await datasette.allowed(actor=actor, action=VIEW_STATUS_ACTION)
+            # Only link the page when this instance actually started a
+            # daemon. Top-level plugin_config() misses instances configured
+            # solely at the database level (databases.<name>.plugins...),
+            # which run a daemon but got no menu entry.
+            and get_process(datasette) is not None
         ):
             return [
                 {
-                    "href": datasette.urls.path("/-/litestream-status"),
-                    "label": "Litestream Status",
+                    "href": datasette.urls.path("/-/litestream"),
+                    "label": "Litestream",
                 },
             ]
 
     return inner
 
 
-async def credential_refresh_loop(
-    startup_id: str, plugin_config: dict, interval_seconds: int
-):
-    """Background task that periodically checks for credential changes."""
-    global processes
+@hookimpl
+def extra_template_vars(datasette):
+    entry = vite_entry(
+        datasette=datasette,
+        plugin_package="datasette_litestream",
+    )
+    return {"datasette_litestream_vite_entry": entry}
 
+
+# Health-loop tick for instances without dynamic credentials (which use
+# their refresh-interval as the tick instead).
+HEALTH_INTERVAL_SECONDS = 30.0
+
+
+async def health_loop(
+    startup_id: str, config: LitestreamConfig, interval_seconds: float
+):
+    """Background supervisor for the litestream daemon.
+
+    Each tick, in order: with dynamic credentials configured, fetch them and
+    restart the daemon when they changed; restart a daemon that is not
+    running (crashed, or left down by an earlier failed restart); otherwise
+    reconcile the daemon's database list against ``registered``,
+    re-registering anything missing (heals a partial re-registration after a
+    rotation restart).
+
+    Failures here are never fatal: the daemon keeps replicating with the
+    last-known-good credentials (valid until the provider expires them) and
+    the loop retries on the next tick. Taking down the whole Datasette
+    instance over a replication hiccup would be strictly worse. Repeated
+    failures are surfaced as a warning on the admin page so a crash-looping
+    binary or a broken credentials source is visible.
+    """
+    consecutive_failures = 0
     while True:
         await asyncio.sleep(interval_seconds)
+        litestream_process = processes.get(startup_id)
+        if litestream_process is None:
+            return  # Process no longer exists
         try:
-            litestream_process = processes.get(startup_id)
-            if litestream_process is None:
-                return  # Process no longer exists
+            new_creds = None
+            if config.credentials.uses_dynamic:
+                # In a thread: the file read / credentials command are
+                # blocking (the command alone may take up to its 30s
+                # subprocess timeout), and this loop shares the event loop
+                # with every request handler.
+                new_creds = await asyncio.to_thread(get_dynamic_credentials, config)
 
-            new_creds = get_dynamic_credentials(plugin_config)
-            if new_creds is None:
-                continue
-
-            new_hash = credentials_hash(new_creds)
-            if new_hash != litestream_process.current_credentials_hash:
+            if (
+                new_creds is not None
+                and credentials_hash(new_creds)
+                != litestream_process.current_credentials_hash
+            ):
                 print(
-                    f"datasette-litestream: credentials changed, restarting litestream",
+                    "datasette-litestream: credentials changed, restarting litestream",
                     file=sys.stderr,
                 )
-                litestream_process.restart_with_new_credentials(new_creds)
+                await asyncio.to_thread(
+                    litestream_process.restart_with_new_credentials, new_creds
+                )
+            elif not litestream_process.daemon_alive:
+                print(
+                    "datasette-litestream: daemon is not running, restarting litestream",
+                    file=sys.stderr,
+                )
+                await asyncio.to_thread(
+                    litestream_process.restart_with_new_credentials,
+                    new_creds
+                    if new_creds is not None
+                    else litestream_process.credentials,
+                )
+            else:
+                healed = await asyncio.to_thread(
+                    litestream_process.reconcile_registrations
+                )
+                for path in healed:
+                    print(
+                        f"datasette-litestream: re-registered {path} with the "
+                        "daemon (was missing from its database list)",
+                        file=sys.stderr,
+                    )
+            consecutive_failures = 0
+            litestream_process.health_warning = None
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- never let a health failure kill the server
+            consecutive_failures += 1
+            if consecutive_failures >= 3:
+                litestream_process.health_warning = (
+                    f"litestream health checks are failing "
+                    f"({consecutive_failures} consecutive): {e}"
+                )
             print(
-                f"datasette-litestream: fatal error refreshing credentials: {e}",
+                f"datasette-litestream: health check failed "
+                f"(consecutive failures: {consecutive_failures}), "
+                f"will retry: {e}",
                 file=sys.stderr,
             )
-            sys.exit(1)
 
 
 @hookimpl
 def startup(datasette):
-    global processes
-
-    litestream_process = LitestreamProcess()
-    litestream_process.litestream_config = {"dbs": []}
-
     plugin_config_top = datasette.plugin_config("datasette-litestream") or {}
 
-    # Validate mutually exclusive credential options
-    credentials_file = plugin_config_top.get("credentials-file")
-    credentials_command = plugin_config_top.get("credentials-command")
-    credentials_refresh_interval = plugin_config_top.get("credentials-refresh-interval")
-
-    if credentials_file and credentials_command:
-        raise StartupError(
-            "datasette-litestream: cannot specify both 'credentials-file' and 'credentials-command'"
-        )
-
-    uses_dynamic_credentials = credentials_file or credentials_command
-
-    if uses_dynamic_credentials and not credentials_refresh_interval:
-        raise StartupError(
-            "datasette-litestream: 'credentials-refresh-interval' is required when using "
-            "'credentials-file' or 'credentials-command'"
-        )
+    # Parse and cache the typed config; a typo'd or invalid key fails startup.
+    try:
+        config = get_config(datasette)
+    except ValidationError as e:
+        raise StartupError(f"datasette-litestream: invalid configuration: {e}") from e
 
     # Load credentials from file/command or from static config
-    if uses_dynamic_credentials:
+    if config.credentials.uses_dynamic:
         try:
-            dynamic_creds = get_dynamic_credentials(plugin_config_top)
-            litestream_process.litestream_config["access-key-id"] = dynamic_creds[
-                "access-key-id"
-            ]
-            litestream_process.litestream_config["secret-access-key"] = dynamic_creds[
-                "secret-access-key"
-            ]
-            if "session-token" in dynamic_creds:
-                litestream_process.litestream_config["session-token"] = dynamic_creds[
-                    "session-token"
-                ]
-            litestream_process.current_credentials_hash = credentials_hash(
-                dynamic_creds
-            )
+            creds = get_dynamic_credentials(config)
         except Exception as e:
             raise StartupError(
                 f"datasette-litestream: failed to load initial credentials: {e}"
             ) from e
     else:
-        # Use static credentials from config
-        if "access-key-id" in plugin_config_top:
-            litestream_process.litestream_config["access-key-id"] = (
-                plugin_config_top.get("access-key-id")
+        creds = config.credentials.static
+
+    replica_url_template = config.replica_url_template
+    warnings = []
+
+    # litestream's metrics server is unauthenticated and also mounts Go's
+    # /debug/pprof handlers; warn when it would listen on all interfaces.
+    if config.metrics_addr:
+        metrics_host = config.metrics_addr.rpartition(":")[0]
+        if metrics_host in ("", "0.0.0.0", "[::]", "::"):
+            warnings.append(
+                f"'metrics-addr' {config.metrics_addr!r} listens on all "
+                "interfaces with no authentication (Prometheus metrics and Go "
+                "pprof endpoints) — bind it to loopback, e.g. "
+                "'127.0.0.1:9090', unless it is firewalled."
             )
 
-        if "secret-access-key" in plugin_config_top:
-            litestream_process.litestream_config["secret-access-key"] = (
-                plugin_config_top.get("secret-access-key")
-            )
-
-        if "session-token" in plugin_config_top:
-            litestream_process.litestream_config["session-token"] = (
-                plugin_config_top.get("session-token")
-            )
-
-    if "metrics-addr" in plugin_config_top:
-        litestream_process.litestream_config["addr"] = plugin_config_top.get(
-            "metrics-addr"
-        )
-
-    all_replicate = plugin_config_top.get("all-replicate")
-
+    # Work out which databases to replicate at startup.
+    initial = []  # list of (db_name, db_path_str, replica_url)
     for db_name, db in datasette.databases.items():
+        try:
+            db_config = get_database_config(datasette, db_name)
+        except ValidationError as e:
+            raise StartupError(
+                f"datasette-litestream: invalid configuration for database "
+                f"'{db_name}': {e}"
+            ) from e
         if db.path is None:
+            # _memory is always present and never file-backed; only warn about
+            # databases this configuration would otherwise try to replicate.
+            if db_name != "_memory" and (
+                db_config is not None or replica_url_template is not None
+            ):
+                warnings.append(
+                    f"Database '{db_name}' is in-memory only, so Litestream cannot replicate it."
+                )
             continue
 
         db_path = Path(db.path)
 
-        plugin_config_db = datasette.plugin_config(
-            "datasette-litestream", db_name, fallback=False
-        )
-
-        # skip this DB if "all-replicate" was not defined or no db-level config was given
-        if plugin_config_db is None and all_replicate is None:
+        # litestream opens databases read-write and flips them to WAL journal
+        # mode, which would physically rewrite a file Datasette promised
+        # never to change.
+        if not db.is_mutable:
+            if db_config is not None:
+                raise StartupError(
+                    f"datasette-litestream: database '{db_name}' is immutable but "
+                    "has a datasette-litestream config block. Litestream would "
+                    "rewrite the file (it switches databases to WAL journal "
+                    "mode) — open the database as mutable or remove its "
+                    "datasette-litestream configuration."
+                )
+            if replica_url_template is not None:
+                warnings.append(
+                    f"Database '{db_name}' is immutable, so Litestream will not replicate it."
+                )
             continue
 
-        db_litestream_config = {
-            "path": str(db_path.resolve()),
-        }
-        if plugin_config_db is not None:
-            # TODO restrict the possible keys here. We don't want plugins to redefine "replicas" or "path"
-            db_litestream_config = {**db_litestream_config, **plugin_config_db}
+        # skip this DB if "replica-url-template" was not defined or no db-level config was given
+        if db_config is None and replica_url_template is None:
+            continue
 
-        if all_replicate is not None:
-            for i, template in enumerate(all_replicate):
-                url = (
-                    template.replace("$DB_NAME", db_name)
-                    .replace("$DB_DIRECTORY", str(db_path.resolve().parent))
-                    .replace("$PWD", os.getcwd())
-                )
+        replica_url = resolve_replica_url(
+            db_name, db_path, db_config, replica_url_template
+        )
+        if replica_url is None:
+            # Only possible with a db-level block that has no 'replica' URL
+            # and no 'replica-url-template' fallback.
+            warnings.append(
+                f"Database '{db_name}' has a datasette-litestream block but no "
+                "'replica' URL, and no top-level 'replica-url-template' is set, so it "
+                "will not be replicated."
+            )
+            continue
 
-                if "replicas" in db_litestream_config:
-                    db_litestream_config["replicas"].append(
-                        {"url": url, "name": f"t{i}"}
-                    )
-                else:
-                    db_litestream_config["replicas"] = [{"url": url, "name": f"t{i}"}]
+        initial.append((db_name, str(db_path.resolve()), replica_url))
 
-        litestream_process.litestream_config["dbs"].append(db_litestream_config)
+    if config.internal_replica_url:
+        internal_path, reason = internal_database_path(datasette)
+        if internal_path is None:
+            warnings.append(f"'internal-replica-url' is set but cannot work: {reason}")
+        else:
+            # No name: the internal database is identified by its path (and
+            # the API's 'internal' flag), never by a reserved database name.
+            initial.append(
+                (None, str(internal_path.resolve()), config.internal_replica_url)
+            )
+
+    for warning in warnings:
+        print(f"datasette-litestream: WARNING: {warning}", file=sys.stderr)
 
     # don't run litestream if no top-level or db-level datasette-litestream config was given
-    if not plugin_config_top and len(litestream_process.litestream_config["dbs"]) == 0:
+    if not plugin_config_top and len(initial) == 0:
         return
 
+    # Validate every resolved replica URL before the daemon starts: a typo'd
+    # scheme should be a clean startup error, not a control-socket traceback
+    # after some databases are already replicating. (The register API applies
+    # the same check to caller-supplied URLs.)
+    def _validated(db_name, db_path, replica_url):
+        label = f"database '{db_name}'" if db_name is not None else "internal database"
+        try:
+            return (db_name, db_path, validate_replica_url(replica_url))
+        except ValueError as e:
+            raise StartupError(
+                f"datasette-litestream: {label}: {e} (URL: {replica_url!r})"
+            ) from e
+
+    initial = [_validated(*entry) for entry in initial]
+
+    # Constructed only now that we know the plugin will run: __init__ opens
+    # the log destination (possibly the operator's configured log file).
+    litestream_process = LitestreamProcess(logging_config=config.logging)
+    litestream_process.credentials = creds
+    litestream_process.current_credentials_hash = credentials_hash(creds)
+    litestream_process.metrics_addr = config.metrics_addr
+    litestream_process.warnings = warnings
+
     startup_id = str(uuid.uuid4())
+    litestream_process.startup_id = startup_id
     processes[startup_id] = litestream_process
     setattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, startup_id)
 
-    litestream_process.start_replicate()
+    try:
+        litestream_process.start_daemon()
+        for db_name, db_path, replica_url in initial:
+            try:
+                litestream_process.register_db(db_path, replica_url, name=db_name)
+            except (LitestreamControlError, httpx.HTTPError, RuntimeError) as e:
+                raise StartupError(
+                    "datasette-litestream: the litestream daemon rejected "
+                    f"database '{db_name or db_path}' ({replica_url}): {e}"
+                ) from e
+    except BaseException:
+        # Datasette aborts startup on the raised error; don't leave a daemon
+        # child, an open log handle or a registry entry behind. (stop_daemon
+        # is final teardown: it also closes the logfile and prunes the
+        # registry entry.)
+        litestream_process.stop_daemon()
+        raise
 
-    # Schedule credential refresh if using dynamic credentials
-    if uses_dynamic_credentials:
-        litestream_process._refresh_task = asyncio.create_task(
-            credential_refresh_loop(
-                startup_id, plugin_config_top, credentials_refresh_interval
-            )
-        )
-
-
-@hookimpl
-def register_routes():
-    return [
-        (r"^/-/litestream-status$", litestream_status),
-    ]
-
-
-async def litestream_status(scope, receive, datasette, request):
-    if not await datasette.allowed(
-        actor=request.actor, action="litestream-view-status"
-    ):
-        raise Forbidden("Permission denied for litestream-view-status")
-
-    startup_id = getattr(datasette, DATASETTE_LITESTREAM_PROCESS_KEY, None)
-
-    if startup_id is None:
-        return Response.html("<h1>Litestream not running</h1>")
-
-    global proccesses
-    litestream_process = processes.get(startup_id)
-
-    if litestream_process is None:
-        return Response.html("<h1>Litestream not running</h1>")
-
-    replica_operations = {
-        "bytes": [],
-        "total": [],
-    }
-    metrics_by_db = {}
-    go_stats = {}
-
-    metrics_enabled = litestream_process.litestream_config.get("addr") is not None
-
-    if metrics_enabled:
-        # litestream metrics give the absolute path to the database, so create a mapping
-        # to the datasette db names
-        db_name_lookup = {}
-        for db_name, db in datasette.databases.items():
-            if db.path is None:
-                continue
-            db_name_lookup[str(Path(db.path).resolve())] = db_name
-
-        # TODO detect when non-localhost addresses are used
-        addr = litestream_process.litestream_config.get("addr")
-        metrics_page = httpx.get(f"http://localhost{addr}/metrics").text
-
-        for family in text_string_to_metric_families(metrics_page):
-            for sample in family.samples:
-                # TODO also  ???
-                if sample.name == "litestream_replica_operation_bytes_total":
-                    replica_operations["bytes"].append(
-                        {
-                            **sample.labels,
-                            "value": sample.value,
-                        }
-                    )
-                elif sample.name == "litestream_replica_operation_total":
-                    replica_operations["total"].append(
-                        {
-                            **sample.labels,
-                            "value": sample.value,
-                        }
-                    )
-
-                elif (
-                    sample.name.startswith("litestream_")
-                    # litestream_replica_validation_total has `name` and `status` values that I don't understand
-                    and sample.name != "litestream_replica_validation_total"
-                ):
-                    db_path = sample.labels.get("db")
-                    db = db_name_lookup.get(db_path)
-                    if db is None:
-                        # Path from metrics may not match resolved path (e.g. /tmp vs /private/tmp)
-                        continue
-
-                    if metrics_by_db.get(db) is None:
-                        metrics_by_db[db] = {}
-
-                    metrics_by_db[db][sample.name] = sample.value
-                elif sample.name in ["go_goroutines", "go_threads"]:
-                    go_stats[sample.name] = sample.value
-
-    return Response.html(
-        await datasette.render_template(
-            "litestream.html",
-            context={
-                "process": {
-                    "pid": litestream_process.process.pid,
-                    "status": (
-                        "alive" if litestream_process.process.poll() is None else "died"
-                    ),
-                },
-                "logs": open(litestream_process.logfile.name, "r").read(),
-                "metrics_enabled": metrics_enabled,
-                "litestream_config": json.dumps(
-                    redact_credentials(litestream_process.litestream_config), indent=2
-                ),
-                "replica_operations": replica_operations,
-                "metrics_by_db": metrics_by_db,
-                "go_stats": go_stats,
-            },
-        )
+    # Supervision runs whenever a daemon does: with dynamic credentials the
+    # loop doubles as the refresh loop on that interval; otherwise it ticks
+    # at the fixed health interval (crash restart + registration reconcile).
+    if config.credentials.uses_dynamic and config.credentials.refresh_interval:
+        interval = config.credentials.refresh_interval
+    else:
+        interval = HEALTH_INTERVAL_SECONDS
+    litestream_process._refresh_task = asyncio.create_task(
+        health_loop(startup_id, config, interval)
     )

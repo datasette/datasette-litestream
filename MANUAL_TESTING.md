@@ -2,6 +2,24 @@
 
 This document provides a comprehensive manual testing plan for the `datasette-litestream` plugin, including all AWS CLI commands needed to create the necessary resources.
 
+> **⚠️ Litestream 0.5 migration note**
+>
+> As of plugin version `0.3a0`, this plugin targets **Litestream 0.5.x** and
+> drives a single long-lived `litestream replicate` daemon over its control
+> socket. The configuration model changed accordingly:
+>
+> - Database-level config uses a single `replica:` URL (not a `replicas:` list).
+> - Per-database tuning keys (`monitor-interval`, `checkpoint-interval`,
+>   `min/max-checkpoint-page-count`) are not yet wired through the control socket.
+> - Replica backups are now laid out under `<replica>/ltx/` (LTX format), not
+>   `<replica>/generations/`.
+> - New scenarios to cover: registering and unregistering a database at runtime
+>   via `POST /-/litestream/register` and `POST /-/litestream/unregister`
+>   (requires the `litestream-manage` permission).
+>
+> Some scenarios below still describe the older `replicas:`/`generations/`
+> behavior and should be updated when exercised against 0.5.
+
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
@@ -330,7 +348,7 @@ echo "Starting Datasette with environment variable credentials..."
 echo ""
 echo "=========================================="
 echo "VERIFICATION STEPS:"
-echo "1. Open http://localhost:8001/-/litestream-status in a browser"
+echo "1. Open http://localhost:8001/-/litestream in a browser"
 echo "2. Sign in as root (click the link shown in terminal)"
 echo "3. Verify 'Litestream status' page shows:"
 echo "   - Process status: alive"
@@ -344,7 +362,7 @@ read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
     -s plugins.datasette-litestream.metrics-addr ":9091" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test1/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test1/$DB_NAME' \
     -p 8001 \
     --root)
 
@@ -378,7 +396,7 @@ echo "Starting Datasette with CLI-based credentials..."
 echo ""
 echo "=========================================="
 echo "VERIFICATION STEPS:"
-echo "1. Access http://localhost:8002/-/litestream-status"
+echo "1. Access http://localhost:8002/-/litestream"
 echo "2. Verify replication is working"
 echo "3. Press Ctrl+C to stop when done"
 echo "=========================================="
@@ -386,10 +404,10 @@ echo ""
 read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.access-key-id "${ACCESS_KEY}" \
-    -s plugins.datasette-litestream.secret-access-key "${SECRET_KEY}" \
+    -s plugins.datasette-litestream.credentials.access-key-id "${ACCESS_KEY}" \
+    -s plugins.datasette-litestream.credentials.secret-access-key "${SECRET_KEY}" \
     -s plugins.datasette-litestream.metrics-addr ":9092" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test2/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test2/$DB_NAME' \
     -p 8002 \
     --root)
 
@@ -408,7 +426,7 @@ read "?Did the test pass? Press Enter to continue to the next test..."
 
 ### Test 3: Replication with Dynamic Credentials from File
 
-**Purpose:** Test the `credentials-file` option for loading credentials from a JSON file.
+**Purpose:** Test the `credentials.file` option for loading credentials from a JSON file.
 
 ```bash
 echo "Ensuring no env vars interfere..."
@@ -422,7 +440,7 @@ echo "Starting Datasette with file-based dynamic credentials..."
 echo ""
 echo "=========================================="
 echo "VERIFICATION STEPS:"
-echo "1. Access http://localhost:8003/-/litestream-status"
+echo "1. Access http://localhost:8003/-/litestream"
 echo "2. Verify litestream is running"
 echo "3. Press Ctrl+C to stop when done"
 echo "=========================================="
@@ -430,10 +448,10 @@ echo ""
 read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.credentials-file "${CREDENTIALS_FILE_PATH}" \
-    -s plugins.datasette-litestream.credentials-refresh-interval 60 \
+    -s plugins.datasette-litestream.credentials.file "${CREDENTIALS_FILE_PATH}" \
+    -s plugins.datasette-litestream.credentials.refresh-interval 60 \
     -s plugins.datasette-litestream.metrics-addr ":9093" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test3/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test3/$DB_NAME' \
     -p 8003 \
     --root)
 
@@ -452,7 +470,7 @@ read "?Did the test pass? Press Enter to continue to the next test..."
 
 ### Test 4: Replication with Dynamic Credentials from Command
 
-**Purpose:** Test the `credentials-command` option for fetching credentials via a script.
+**Purpose:** Test the `credentials.command` option for fetching credentials via a script.
 
 ```bash
 echo "Unsetting environment variables..."
@@ -473,7 +491,7 @@ echo "Starting Datasette with command-based dynamic credentials..."
 echo ""
 echo "=========================================="
 echo "VERIFICATION STEPS:"
-echo "1. Access http://localhost:8004/-/litestream-status"
+echo "1. Access http://localhost:8004/-/litestream"
 echo "2. Verify litestream is running"
 echo "3. Press Ctrl+C to stop when done"
 echo "=========================================="
@@ -481,10 +499,10 @@ echo ""
 read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.credentials-command "${CREDENTIALS_COMMAND}" \
-    -s plugins.datasette-litestream.credentials-refresh-interval 60 \
+    -s plugins.datasette-litestream.credentials.command "${CREDENTIALS_COMMAND}" \
+    -s plugins.datasette-litestream.credentials.refresh-interval 60 \
     -s plugins.datasette-litestream.metrics-addr ":9094" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test4/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test4/$DB_NAME' \
     -p 8004 \
     --root)
 
@@ -523,7 +541,7 @@ echo "Starting Datasette with STS temporary credentials..."
 echo ""
 echo "=========================================="
 echo "VERIFICATION STEPS:"
-echo "1. Access http://localhost:8005/-/litestream-status"
+echo "1. Access http://localhost:8005/-/litestream"
 echo "2. Verify litestream is running (session-token is being used)"
 echo "3. Press Ctrl+C to stop when done"
 echo "=========================================="
@@ -531,10 +549,10 @@ echo ""
 read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.credentials-command "${FETCH_CREDS_COMMAND}" \
-    -s plugins.datasette-litestream.credentials-refresh-interval 300 \
+    -s plugins.datasette-litestream.credentials.command "${FETCH_CREDS_COMMAND}" \
+    -s plugins.datasette-litestream.credentials.refresh-interval 300 \
     -s plugins.datasette-litestream.metrics-addr ":9095" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test5/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test5/$DB_NAME' \
     -p 8005 \
     --root)
 
@@ -554,6 +572,12 @@ read "?Did the test pass? Press Enter to continue to the next test..."
 ### Test 6: Credential Rotation / Refresh
 
 **Purpose:** Verify that credentials are automatically refreshed and litestream restarts when credentials change.
+
+> **Automated equivalent:** `just test-versitygw` runs this scenario end-to-end
+> against a local [versitygw](https://github.com/versity/versitygw) S3 gateway —
+> including server-side revocation of the old credentials, which this manual
+> test does not exercise — with no AWS account required. See
+> `tests/test_versitygw_credentials.py`.
 
 ```bash
 echo "Creating initial credentials file..."
@@ -581,10 +605,10 @@ echo ""
 read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.credentials-file "${ROTATING_CREDENTIALS_PATH}" \
-    -s plugins.datasette-litestream.credentials-refresh-interval 10 \
+    -s plugins.datasette-litestream.credentials.file "${ROTATING_CREDENTIALS_PATH}" \
+    -s plugins.datasette-litestream.credentials.refresh-interval 10 \
     -s plugins.datasette-litestream.metrics-addr ":9096" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test6/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test6/$DB_NAME' \
     -p 8006 \
     --root)
 
@@ -599,7 +623,7 @@ read "?Did the test pass? Press Enter to continue to the next test..."
 
 ### Test 7: Multiple Database Replication
 
-**Purpose:** Test that all-replicate works correctly with multiple databases.
+**Purpose:** Test that replica-url-template works correctly with multiple databases.
 
 ```bash
 export LITESTREAM_ACCESS_KEY_ID=$(jq -r '."access-key-id"' ./static-credentials.json)
@@ -609,7 +633,7 @@ echo "Starting Datasette with multiple databases..."
 echo ""
 echo "=========================================="
 echo "VERIFICATION STEPS:"
-echo "1. Access http://localhost:8007/-/litestream-status"
+echo "1. Access http://localhost:8007/-/litestream"
 echo "2. Verify both databases are shown in the config"
 echo "3. Press Ctrl+C to stop when done"
 echo "=========================================="
@@ -618,7 +642,7 @@ read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db ./analytics.db \
     -s plugins.datasette-litestream.metrics-addr ":9097" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test7/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test7/$DB_NAME' \
     -p 8007 \
     --root)
 
@@ -652,7 +676,7 @@ echo "Starting Datasette with per-database configuration..."
 echo ""
 echo "=========================================="
 echo "VERIFICATION STEPS:"
-echo "1. Access http://localhost:8008/-/litestream-status"
+echo "1. Access http://localhost:8008/-/litestream"
 echo "2. Check the litestream config shown on the page has both databases"
 echo "3. Press Ctrl+C to stop when done"
 echo "=========================================="
@@ -711,7 +735,7 @@ read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
     -s plugins.datasette-litestream.metrics-addr ":9099" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test9/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test9/$DB_NAME' \
     -p 8009 \
     --root) &
 
@@ -772,7 +796,7 @@ read "?Press Enter to start the integrity test..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./integrity-test.db \
     -s plugins.datasette-litestream.metrics-addr ":9100" \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test10/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test10/$DB_NAME' \
     -p 8010 \
     --root) &
 
@@ -873,9 +897,9 @@ echo ""
 read "?Press Enter to start Datasette (will timeout after 10 seconds)..."
 
 timeout 10 bash -c '(cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.credentials-file "'"${INVALID_CREDENTIALS_PATH}"'" \
-    -s plugins.datasette-litestream.credentials-refresh-interval 60 \
-    -s plugins.datasette-litestream.all-replicate '"'"'["s3://'"${BUCKET_NAME}"'/test11/$DB_NAME"]'"'"' \
+    -s plugins.datasette-litestream.credentials.file "'"${INVALID_CREDENTIALS_PATH}"'" \
+    -s plugins.datasette-litestream.credentials.refresh-interval 60 \
+    -s plugins.datasette-litestream.replica-url-template '"'"'s3://'"${BUCKET_NAME}"'/test11/$DB_NAME'"'"' \
     -p 8011 \
     --root 2>&1)' || echo "Process exited (expected)"
 
@@ -903,9 +927,9 @@ echo ""
 read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.credentials-file "/nonexistent/credentials.json" \
-    -s plugins.datasette-litestream.credentials-refresh-interval 60 \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test12/$DB_NAME"]' \
+    -s plugins.datasette-litestream.credentials.file "/nonexistent/credentials.json" \
+    -s plugins.datasette-litestream.credentials.refresh-interval 60 \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test12/$DB_NAME' \
     -p 8012 \
     --root 2>&1) || echo "Startup failed as expected"
 
@@ -918,7 +942,7 @@ read "?Did the test pass? Press Enter to continue to the next test..."
 
 ---
 
-### Test 13: Error Handling - Both credentials-file and credentials-command
+### Test 13: Error Handling - Both credentials.file and credentials.command
 
 **Purpose:** Verify error when both credential sources are specified.
 
@@ -935,16 +959,16 @@ echo ""
 read "?Press Enter to start Datasette..."
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
-    -s plugins.datasette-litestream.credentials-file "${CREDENTIALS_FILE_PATH}" \
-    -s plugins.datasette-litestream.credentials-command "echo {}" \
-    -s plugins.datasette-litestream.credentials-refresh-interval 60 \
-    -s plugins.datasette-litestream.all-replicate '["s3://'"${BUCKET_NAME}"'/test13/$DB_NAME"]' \
+    -s plugins.datasette-litestream.credentials.file "${CREDENTIALS_FILE_PATH}" \
+    -s plugins.datasette-litestream.credentials.command "echo {}" \
+    -s plugins.datasette-litestream.credentials.refresh-interval 60 \
+    -s plugins.datasette-litestream.replica-url-template 's3://'"${BUCKET_NAME}"'/test13/$DB_NAME' \
     -p 8013 \
     --root 2>&1) || echo "Startup failed as expected"
 
 echo ""
 echo "=========================================="
-echo "EXPECTED RESULT: StartupError: datasette-litestream: cannot specify both 'credentials-file' and 'credentials-command'"
+echo "EXPECTED RESULT: StartupError: datasette-litestream: cannot specify both a credentials 'file' and 'command'"
 echo "=========================================="
 read "?Did the test pass? Press Enter to continue to the next test..."
 ```
@@ -978,7 +1002,7 @@ export LOCAL_BACKUP_PATH="$(pwd)/local-backup"
 
 (cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
     -s plugins.datasette-litestream.metrics-addr ":9114" \
-    -s plugins.datasette-litestream.all-replicate '["file://'"${LOCAL_BACKUP_PATH}"'/$DB_NAME"]' \
+    -s plugins.datasette-litestream.replica-url-template 'file://'"${LOCAL_BACKUP_PATH}"'/$DB_NAME' \
     -p 8014 \
     --root) &
 
@@ -1000,6 +1024,52 @@ kill $DATASETTE_PID 2>/dev/null
 echo ""
 echo "=========================================="
 echo "EXPECTED RESULT: Backup files created at ./local-backup/test-database/"
+echo "=========================================="
+read "?Did the test pass? Press Enter to continue to the next test..."
+```
+
+---
+
+### Test 15: Graceful Shutdown Final Sync (No AWS Required)
+
+**Purpose:** Verify that stopping Datasette lets litestream perform a final
+sync, so writes that landed just before shutdown reach the replica. The
+plugin's atexit handler sends the daemon SIGTERM (litestream traps it and
+flushes each database to its replica) instead of SIGKILL.
+
+```bash
+rm -rf ./shutdown-backup ./shutdown-restore.db
+export SHUTDOWN_BACKUP_PATH="$(pwd)/shutdown-backup"
+
+echo "Starting Datasette with a file:// replica..."
+(cd ~/dev/ecosystem/datasette-litestream && uv run datasette ./test-database.db \
+    -s plugins.datasette-litestream.replica-url-template 'file://'"${SHUTDOWN_BACKUP_PATH}"'/$DB_NAME' \
+    -p 8015 \
+    --root) &
+export DATASETTE_PID=$!
+sleep 3
+
+echo "Writing a row, then terminating Datasette immediately..."
+sqlite3 ./test-database.db \
+    "INSERT INTO test_data (name, value) VALUES ('shutdown-test', 'written-just-before-exit');"
+kill -TERM $DATASETTE_PID
+wait $DATASETTE_PID 2>/dev/null
+
+echo "Restoring from the replica..."
+litestream restore -o ./shutdown-restore.db \
+    "file://${SHUTDOWN_BACKUP_PATH}/test-database"
+sqlite3 ./shutdown-restore.db \
+    "SELECT name, value FROM test_data WHERE name = 'shutdown-test';"
+
+echo ""
+echo "=========================================="
+echo "EXPECTED RESULT:"
+echo "1. The restored database contains the 'shutdown-test' row written"
+echo "   moments before SIGTERM (the final sync shipped it)."
+echo "2. No /tmp/datasette-litestream-* directories remain:"
+ls -d /tmp/datasette-litestream-* 2>/dev/null || echo "   (none found — pass)"
+echo "3. No stray litestream processes remain:"
+pgrep -fl "litestream replicate" || echo "   (none found — pass)"
 echo "=========================================="
 read "?Did the test pass? Press Enter to continue to cleanup..."
 ```
@@ -1093,6 +1163,7 @@ echo "Local cleanup complete!"
 | 12 | Error: Missing credentials file | x |
 | 13 | Error: Both credential sources | x |
 | 14 | Local file backup (no AWS) | x |
+| 15 | Graceful shutdown final sync | ☐ |
 
 ---
 

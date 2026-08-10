@@ -1,4 +1,8 @@
 #!/bin/bash
+# Fail fast: without -e, a missing tmp/litestream-* binary would leave the
+# previous platform's binary in datasette_litestream/bin/ and quietly build
+# a wheel bundling the wrong one.
+set -euo pipefail
 
 DATASETTE_LITESTREAM_VERSION="$(python3 -c "import tomllib; print(tomllib.loads(open('pyproject.toml', 'r').read())['project']['version'])")"
 
