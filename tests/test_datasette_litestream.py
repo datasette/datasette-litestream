@@ -17,6 +17,7 @@ import pytest
 import sqlite_utils
 from conftest import table
 from datasette.app import Datasette
+from datasette.background_tasks import BackgroundTask
 from datasette.database import Database
 from datasette.utils import StartupError
 from pydantic import ValidationError
@@ -98,7 +99,7 @@ async def test_plugin_is_installed():
     datasette = Datasette(memory=True)
     response = await datasette.client.get("/-/plugins.json")
     assert response.status_code == 200
-    installed_plugins = {p["name"] for p in response.json()}
+    installed_plugins = {p["name"] for p in response.json()["plugins"]}
     assert "datasette-litestream" in installed_plugins
 
 
@@ -795,10 +796,11 @@ async def test_credentials_not_leaked_in_status(
 
 
 @pytest.mark.asyncio
-async def test_credential_refresh_task_is_stored(
+async def test_credential_refresh_task_is_supervised(
     litestream_binary, students_db_path, tmpdir
 ):
-    """The credential refresh task must be stored to prevent garbage collection."""
+    """The refresh loop runs as a supervised background task (core keeps the
+    strong reference); the handle is stored for teardown paths to cancel."""
     creds_file = tmpdir / "creds.json"
     creds_file.write_text(
         json.dumps({"access-key-id": "AKIATEST", "secret-access-key": "secrettest"}),
@@ -819,8 +821,13 @@ async def test_credential_refresh_task_is_stored(
     assert startup_id is not None
     litestream_process = processes.get(startup_id)
     assert litestream_process is not None
-    assert litestream_process._refresh_task is not None
-    assert not litestream_process._refresh_task.done()
+    # The datasette.client request above went through the first-request
+    # fallback, which launches registered background tasks.
+    handle = litestream_process._health_handle
+    assert handle is not None
+    assert handle.state == "running"
+    assert handle.task is not None
+    assert not handle.task.done()
 
 
 # ---------------------------------------------------------------------------
@@ -1078,7 +1085,8 @@ async def test_health_loop_sets_and_clears_health_warning(tmpdir, refresh_loop_p
 
 @pytest.mark.asyncio
 async def test_health_loop_runs_with_static_credentials(litestream_binary, tmpdir):
-    """The supervisor task exists even without a dynamic credential source."""
+    """The supervised health task exists even without a dynamic credential
+    source."""
     db_path = str(tmpdir / "data.db")
     table(db_path, "t").insert({"v": 1})
     backups = tmpdir / "backups"
@@ -1092,10 +1100,10 @@ async def test_health_loop_runs_with_static_credentials(litestream_binary, tmpdi
             }
         },
     )
-    await datasette.invoke_startup()
+    await datasette.start_background_tasks()
     litestream_process = get_process(datasette)
-    assert litestream_process._refresh_task is not None
-    assert not litestream_process._refresh_task.done()
+    assert litestream_process._health_handle is not None
+    assert litestream_process._health_handle.state == "running"
 
 
 # ---------------------------------------------------------------------------
@@ -1896,7 +1904,9 @@ class FakeChild:
         return None
 
 
-class FakeTask:
+class FakeHandle:
+    """Stands in for the BackgroundTask handle stored on _health_handle."""
+
     def __init__(self):
         self.cancelled = False
 
@@ -1923,13 +1933,13 @@ def test_interpreter_exit_stops_daemon_gracefully(tmp_path):
     proc = LitestreamProcess()
     child = FakeChild()
     socket_dir, cfg = _started_state(proc, tmp_path, child)
-    task = FakeTask()
-    proc._refresh_task = cast(asyncio.Task, task)
+    handle = FakeHandle()
+    proc._health_handle = cast(BackgroundTask, handle)
 
     proc._on_interpreter_exit()
 
     assert child.calls == ["terminate", "wait"]  # SIGTERM only, no SIGKILL
-    assert task.cancelled
+    assert handle.cancelled
     assert proc.process is None
     assert not cfg.exists()
     assert not socket_dir.exists()

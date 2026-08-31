@@ -343,6 +343,33 @@ def startup(datasette):
         interval = config.credentials.refresh_interval
     else:
         interval = HEALTH_INTERVAL_SECONDS
-    litestream_process._refresh_task = asyncio.create_task(
-        health_loop(startup_id, config, interval)
+
+    async def _health(_datasette):
+        await health_loop(startup_id, config, interval)
+
+    # Supervised by Datasette core: launched once every plugin's startup hook
+    # has run, strong-referenced for the life of the process, crashes logged,
+    # cancelled (with a grace period) on shutdown, and visible at /-/tasks.
+    litestream_process._health_handle = datasette.add_background_task(
+        _health, name="datasette-litestream-health"
     )
+
+
+@hookimpl
+def shutdown(datasette):
+    """Gracefully stop the litestream daemon on Datasette shutdown.
+
+    Runs while background tasks are still alive, so the health task is
+    cancelled first — a tick racing this teardown would otherwise see a dead
+    daemon and restart it. stop_daemon() sends SIGTERM, which litestream
+    traps to final-sync every database to its replica before exiting; it also
+    unregisters the atexit fallback, closes the log handle and prunes the
+    process registry, so this and atexit can never both tear down.
+    """
+    litestream_process = get_process(datasette)
+    if litestream_process is None:
+        return
+    handle = litestream_process._health_handle
+    if handle is not None:
+        handle.cancel()
+    litestream_process.stop_daemon()

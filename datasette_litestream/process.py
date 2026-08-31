@@ -187,9 +187,11 @@ class LitestreamProcess:
         # Key of this process in the module-level ``processes`` registry,
         # set at registration; used to prune the entry on final teardown.
         self.startup_id = None
-        # atexit handler (stored so we can unregister it) and refresh task.
+        # atexit handler (stored so we can unregister it), and the
+        # BackgroundTask handle for the supervised health loop registered
+        # via datasette.add_background_task() in the startup hook.
         self._atexit_handler = None
-        self._refresh_task = None
+        self._health_handle = None
         # Serializes daemon lifecycle changes and runtime (un)registration,
         # so a credential-rotation restart cannot race the manage API and
         # silently drop entries from ``registered``. A plain Lock (not RLock):
@@ -240,8 +242,10 @@ class LitestreamProcess:
             env=env,
         )
 
-        # Stop the daemon when the interpreter exits (Datasette has no plugin
-        # shutdown hook as of 1.0a32, so atexit is the only exit-time hook).
+        # Stop the daemon when the interpreter exits. The shutdown() plugin
+        # hook is the primary teardown path, but it only fires on graceful
+        # ASGI-lifespan shutdown — atexit stays as the fallback for hosts
+        # that never send lifespan events (bare app() embeds, test clients).
         # Registered immediately after Popen so the child is covered even if
         # the parent dies while we are still waiting for it to come up.
         self._atexit_handler = self._on_interpreter_exit
@@ -302,10 +306,10 @@ class LitestreamProcess:
         A shorter wait than stop_daemon's default so a wedged daemon cannot
         hang interpreter exit for long.
         """
-        task = self._refresh_task
-        if task is not None:
+        handle = self._health_handle
+        if handle is not None:
             try:
-                task.cancel()
+                handle.cancel()
             except Exception:  # noqa: BLE001, S110 -- best effort at exit
                 pass
         if self._lock.acquire(timeout=lock_timeout):

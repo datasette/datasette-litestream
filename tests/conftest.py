@@ -54,10 +54,10 @@ def _cleanup_daemons():
     """Stop any litestream daemons started during a test and reset global state."""
     yield
     for proc in list(processes.values()):
-        task = getattr(proc, "_refresh_task", None)
-        if task is not None:
+        handle = getattr(proc, "_health_handle", None)
+        if handle is not None:
             try:
-                task.cancel()
+                handle.cancel()
             except Exception:  # noqa: BLE001, S110 -- cleanup must not fail
                 pass
         try:

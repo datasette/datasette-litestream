@@ -92,7 +92,9 @@ async def test_credential_rotation_end_to_end(gateway, tmp_path):
             },
         },
     )
-    await datasette.invoke_startup()
+    # start_background_tasks() = invoke_startup() + launch: the rotation
+    # phases below need the supervised refresh loop actually ticking.
+    await datasette.start_background_tasks()
 
     proc = get_process(datasette)
     assert proc is not None
@@ -130,8 +132,8 @@ async def test_credential_rotation_end_to_end(gateway, tmp_path):
     stale_hash = proc.current_credentials_hash
     creds_path.write_text("", encoding="utf-8")
     await asyncio.sleep(1.5)  # several 0.5s refresh ticks over the empty file
-    assert proc._refresh_task is not None
-    assert not proc._refresh_task.done()
+    assert proc._health_handle is not None
+    assert proc._health_handle.state == "running"
     assert proc.current_credentials_hash == stale_hash
 
     # Phase 3: rotate the credentials file to userB and wait for the refresh
