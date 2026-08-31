@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [{name = "Alex Garcia"}]
 license = "Apache-2.0"
 dependencies = [
-    "datasette>=1.0a20",
+    "datasette>=1.0a38",
     "datasette-plugin-router>=0.0.1a6",
     "datasette-vite>=0.0.1a4",
     "httpx",
@@ -32,6 +32,12 @@ dev = [
 
 [tool.uv]
 package = true
+
+# TODO: remove once datasette 1.0a38 is on PyPI. Until then, resolve datasette
+# from the first-request lifecycle branch stack (add_background_task, the
+# shutdown hook) that 1.0a38 will ship.
+[tool.uv.sources]
+datasette = { git = "https://github.com/simonw/datasette", branch = "asg017/first-request-7-docs-and-changelog" }
 
 [tool.setuptools.packages.find]
 namespaces = false

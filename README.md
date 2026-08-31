@@ -18,7 +18,7 @@ destination; the older multi-replica `replicas:` lists are no longer supported.)
 
 The plugin requires a recent alpha version of Datasette 1.0:
 
-    pip install 'datasette>=1.0a20'
+    pip install 'datasette>=1.0a38'
 
 Then install this plugin in the same environment as Datasette:
 
@@ -194,6 +194,15 @@ litestream process is restarted (with the current credentials) and any
 database missing from the daemon's list is re-registered. Instances
 without a dynamic credential source run this supervision on a fixed
 30-second interval.
+
+The loop runs as a Datasette-supervised background task named
+`datasette-litestream-health`, so it shows up in Datasette's `/-/tasks`
+introspection endpoint (which requires the `permissions-debug`
+permission). On graceful shutdown (Ctrl-C, `SIGTERM`) the plugin's
+`shutdown` hook stops the daemon first — litestream traps the signal and
+performs a final sync of every database to its replica before exiting —
+and an `atexit` handler remains as a fallback for hosts that never send
+ASGI lifespan events.
 
 Credentials are passed to Litestream through the daemon's environment (as
 `AWS_*` variables) rather than written into the generated config file.

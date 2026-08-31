@@ -52,11 +52,11 @@ wheels = [
 
 [[package]]
 name = "asyncinject"
-version = "0.6.1"
+version = "0.7"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6f/4e/62c1c1f4a63ac3b6d251b170be57dc8d463b93d23da95de70bea51615b25/asyncinject-0.6.1.tar.gz", hash = "sha256:7f9a08e7bbbc45d901ee620351f486a140ef8ca6bf4c1ef6e1e28309a0a5e5b8", size = 13445, upload-time = "2025-10-09T03:23:11.098Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/84/7a254c2310196485a2de46d69ae751274368c245d4dd85a8ef5535b70a25/asyncinject-0.7.tar.gz", hash = "sha256:f732c9dff942c9e48dbb78a08a59fc1b978d86d0aef32beff52ef51d3446794c", size = 13817, upload-time = "2026-06-11T06:29:19.944Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/92/46/a669bc58f829dd0b873ad570c22342cd8d34ef17a8e203e320efa3df7c5d/asyncinject-0.6.1-py3-none-any.whl", hash = "sha256:3723128f8016b55a700cf89839624ef1b3b42c0c24a94b3be921326087aa2cc7", size = 12392, upload-time = "2025-10-09T03:23:09.762Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/a8/afb954cb15db033678cd2daf4c3cc86aef69cb7710244a59e2247c6316da/asyncinject-0.7-py3-none-any.whl", hash = "sha256:201a4ad53188ced6b2dd35d2c5a9099658b223e7577ba04c1accd90208b961ce", size = 12556, upload-time = "2026-06-11T06:29:18.914Z" },
 ]
 
 [[package]]
@@ -121,8 +121,8 @@ wheels = [
 
 [[package]]
 name = "datasette"
-version = "1.0a32"
-source = { registry = "https://pypi.org/simple" }
+version = "1.0a36"
+source = { git = "https://github.com/simonw/datasette?branch=asg017%2Ffirst-request-7-docs-and-changelog#78b20d251e2b00152ffd2452f575ed86d240097e" }
 dependencies = [
     { name = "aiofiles" },
     { name = "asgiref" },
@@ -136,14 +136,11 @@ dependencies = [
     { name = "mergedeep" },
     { name = "pip" },
     { name = "pluggy" },
+    { name = "pydantic" },
     { name = "pyyaml" },
     { name = "setuptools" },
     { name = "sqlite-utils" },
     { name = "uvicorn" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/da/de/7eb4b135d4fd993cf19772823579654ef61e87794708305602baf4341328/datasette-1.0a32.tar.gz", hash = "sha256:a19fcb66e8b3e64b5f9001fee246ea5093181e3dd61fee218a237dad68cbedc5", size = 570496, upload-time = "2026-05-31T23:28:11.475Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/54/73c26e0217ad7cda0dbce3980cf041dbc503c185a4a5e1e23d86c51f3271/datasette-1.0a32-py3-none-any.whl", hash = "sha256:780e1b84f88eb7cfe944f9e59ad2f2950a026361b67b9dce369745c1c1a363e5", size = 436872, upload-time = "2026-05-31T23:28:09.449Z" },
 ]
 
 [[package]]
@@ -167,7 +164,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datasette", specifier = ">=1.0a20" },
+    { name = "datasette", git = "https://github.com/simonw/datasette?branch=asg017%2Ffirst-request-7-docs-and-changelog" },
     { name = "datasette-plugin-router", specifier = ">=0.0.1a6" },
     { name = "datasette-vite", specifier = ">=0.0.1a4" },
     { name = "httpx" },
@@ -1047,7 +1044,7 @@ wheels = [
 
 [[package]]
 name = "sqlite-utils"
-version = "3.39"
+version = "4.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1058,9 +1055,9 @@ dependencies = [
     { name = "sqlite-fts4" },
     { name = "tabulate" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b3/e3/6b1106349e2576c18409b27bd3b16f193b1cf38220d98ad22aa454c5e075/sqlite_utils-3.39.tar.gz", hash = "sha256:bfa2eac29b3e3eb5c9647283797527febcf4efd4a9bbb31d979a14a11ef9dbcd", size = 215324, upload-time = "2025-11-24T18:45:49.91Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/6b/4a7b3d20c92e6c7acedc96ef620df8e1ea8f94a26a41ab788c1c08055815/sqlite_utils-4.2.1.tar.gz", hash = "sha256:76114b6a5414714e6c70e5fa5c4781b301b590f6951b5da39c8cc60c21382ba1", size = 311722, upload-time = "2026-08-13T23:59:17.848Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/33/7e01d2f6b8c778529dfae9045c4f46b33ba145c3d401fa95b07f599e7403/sqlite_utils-3.39-py3-none-any.whl", hash = "sha256:349c099c0cd60d4ee9139a24d5c9cb64af3906c3e90832fcbbd74da49333374d", size = 68451, upload-time = "2025-11-24T18:45:48.366Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/d0/a20b9ea8686ea14f171582f3ce9f9b40b8fbb858fea744896191c09f2c2f/sqlite_utils-4.2.1-py3-none-any.whl", hash = "sha256:7fbaee670713b25eceba05779b844f0895efaf680d9a226fa5ba7dfe165721c5", size = 99482, upload-time = "2026-08-13T23:59:16.796Z" },
 ]
 
 [[package]]

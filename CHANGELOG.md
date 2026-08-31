@@ -44,6 +44,16 @@ need updating (startup errors include migration hints).
 
 ### Added
 
+- **Datasette lifecycle integration** (requires `datasette>=1.0a38`): the
+  health/credential-refresh loop is now registered through
+  `datasette.add_background_task()` as a supervised task named
+  `datasette-litestream-health` — core launches it after every plugin's
+  `startup` hook has run, keeps the reference, logs crashes, and lists it at
+  `/-/tasks`. A new `shutdown()` plugin hook gracefully stops the litestream
+  daemon (final-syncing every database to its replica) on Ctrl-C/`SIGTERM`;
+  the `atexit` handler remains as a fallback for hosts without ASGI lifespan
+  events. Until 1.0a38 is on PyPI, `[tool.uv.sources]` resolves datasette
+  from its pre-release branch.
 - **Admin UI** at `/-/litestream` (Svelte 5 + TypeScript, also linked from the
   Datasette menu): daemon version/PID/uptime, a polling table of replicating
   databases with status, replica destination and last-sync time, a per-database
